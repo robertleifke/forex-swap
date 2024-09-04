@@ -11,7 +11,7 @@ import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {CurrencyLibrary, Currency} from "v4-core/src/types/Currency.sol";
 import {PoolSwapTest} from "v4-core/src/test/PoolSwapTest.sol";
-import {Counter} from "../src/Counter.sol";
+import {Binary} from "../src/Binary.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {PositionConfig} from "v4-periphery/src/libraries/PositionConfig.sol";
 
@@ -25,7 +25,7 @@ contract CounterTest is Test, Fixtures {
     using CurrencyLibrary for Currency;
     using StateLibrary for IPoolManager;
 
-    Counter hook;
+    Binary amm;
     PoolId poolId;
 
     uint256 tokenId;
@@ -47,10 +47,10 @@ contract CounterTest is Test, Fixtures {
         );
         bytes memory constructorArgs = abi.encode(manager); //Add all the necessary constructor arguments from the hook
         deployCodeTo("Counter.sol:Counter", constructorArgs, flags);
-        hook = Counter(flags);
+        amm = Binary(flags);
 
         // Create the pool
-        key = PoolKey(currency0, currency1, 3000, 60, IHooks(hook));
+        key = PoolKey(currency0, currency1, 3000, 60, IHooks(amm));
         poolId = key.toId();
         manager.initialize(key, SQRT_PRICE_1_1, ZERO_BYTES);
 
@@ -73,11 +73,11 @@ contract CounterTest is Test, Fixtures {
 
     function testCounterHooks() public {
         // positions were created in setup()
-        assertEq(hook.beforeAddLiquidityCount(poolId), 1);
-        assertEq(hook.beforeRemoveLiquidityCount(poolId), 0);
+        assertEq(amm.beforeAddLiquidityCount(poolId), 1);
+        assertEq(amm.beforeRemoveLiquidityCount(poolId), 0);
 
-        assertEq(hook.beforeSwapCount(poolId), 0);
-        assertEq(hook.afterSwapCount(poolId), 0);
+        assertEq(amm.beforeSwapCount(poolId), 0);
+        assertEq(amm.afterSwapCount(poolId), 0);
 
         // Perform a test swap //
         bool zeroForOne = true;
@@ -87,14 +87,14 @@ contract CounterTest is Test, Fixtures {
 
         assertEq(int256(swapDelta.amount0()), amountSpecified);
 
-        assertEq(hook.beforeSwapCount(poolId), 1);
-        assertEq(hook.afterSwapCount(poolId), 1);
+        assertEq(amm.beforeSwapCount(poolId), 1);
+        assertEq(amm.afterSwapCount(poolId), 1);
     }
 
     function testLiquidityHooks() public {
         // positions were created in setup()
-        assertEq(hook.beforeAddLiquidityCount(poolId), 1);
-        assertEq(hook.beforeRemoveLiquidityCount(poolId), 0);
+        assertEq(amm.beforeAddLiquidityCount(poolId), 1);
+        assertEq(amm.beforeRemoveLiquidityCount(poolId), 0);
 
         // remove liquidity
         uint256 liquidityToRemove = 1e18;
@@ -109,7 +109,7 @@ contract CounterTest is Test, Fixtures {
             ZERO_BYTES
         );
 
-        assertEq(hook.beforeAddLiquidityCount(poolId), 1);
-        assertEq(hook.beforeRemoveLiquidityCount(poolId), 1);
+        assertEq(amm.beforeAddLiquidityCount(poolId), 1);
+        assertEq(amm.beforeRemoveLiquidityCount(poolId), 1);
     }
 }
