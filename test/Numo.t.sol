@@ -13,8 +13,8 @@ import {CurrencyLibrary, Currency} from "v4-core/src/types/Currency.sol";
 import {PoolSwapTest} from "v4-core/src/test/PoolSwapTest.sol";
 import {Numo} from "../src/Numo.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
-import {PositionConfig} from "v4-periphery/src/libraries/PositionConfig.sol";
 
+import {LiquidityAmounts} from "v4-core/test/utils/LiquidityAmounts.sol";
 import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol";
 import {EasyPosm} from "./utils/EasyPosm.sol";
 import {Fixtures} from "./utils/Fixtures.sol";
@@ -29,7 +29,8 @@ contract CounterTest is Test, Fixtures {
     PoolId poolId;
 
     uint256 tokenId;
-    PositionConfig config;
+    int24 tickLower;
+    int24 tickUpper;
 
     function setUp() public {
         // creates the pool manager, utility routers, and test tokens
@@ -55,16 +56,25 @@ contract CounterTest is Test, Fixtures {
         manager.initialize(key, SQRT_PRICE_1_1, ZERO_BYTES);
 
         // Provide full-range liquidity to the pool
-        config = PositionConfig({
-            poolKey: key,
-            tickLower: TickMath.minUsableTick(key.tickSpacing),
-            tickUpper: TickMath.maxUsableTick(key.tickSpacing)
-        });
+        tickLower = TickMath.minUsableTick(key.tickSpacing);
+        tickUpper = TickMath.maxUsableTick(key.tickSpacing);
+
+        uint128 liquidityAmount = 100e18;
+
+        (uint256 amount0Expected, uint256 amount1Expected) = LiquidityAmounts.getAmountsForLiquidity(
+            SQRT_PRICE_1_1,
+            TickMath.getSqrtPriceAtTick(tickLower),
+            TickMath.getSqrtPriceAtTick(tickUpper),
+            liquidityAmount
+        );
+
         (tokenId,) = posm.mint(
-            config,
-            10_000e18,
-            MAX_SLIPPAGE_ADD_LIQUIDITY,
-            MAX_SLIPPAGE_ADD_LIQUIDITY,
+            key,
+            tickLower,
+            tickUpper,
+            liquidityAmount,
+            amount0Expected + 1,
+            amount1Expected + 1,
             address(this),
             block.timestamp,
             ZERO_BYTES
@@ -100,7 +110,6 @@ contract CounterTest is Test, Fixtures {
         uint256 liquidityToRemove = 1e18;
         posm.decreaseLiquidity(
             tokenId,
-            config,
             liquidityToRemove,
             MAX_SLIPPAGE_REMOVE_LIQUIDITY,
             MAX_SLIPPAGE_REMOVE_LIQUIDITY,
