@@ -1,5 +1,10 @@
 # Numo
-### **An automated market maker that sells binary options using @Uniswap v4 liquidity.**
+### An automated market maker that sells binary options using Uniswap v4 liquidity.
+
+Numo uniquely enables a binary options market to exist on all tokens on the EVM. One could trade on Numo to speculate or hedge on token prices.  
+
+The solidity implementation for Numo is contained in this repository and was inspired by math that shows virtually [any option strategy can be constructed using CFMMs](https://arxiv.org/abs/2103.14769) and most importantly [RMM-01](https://www.primitive.xyz/papers/Whitepaper.pdf) built by the wonderful [@primitivefinance](https://github.com/primitivefinance) team. 
+
 
 <details>
 <summary>Updating to v4-template:latest</summary>
@@ -118,12 +123,4 @@ Hook deployment failures are caused by incorrect flags or incorrect salt mining
 </details>
 
 ---
-
-Additional resources:
-
-[v4-periphery](https://github.com/uniswap/v4-periphery) contains advanced hook implementations that serve as a great reference
-
-[v4-core](https://github.com/uniswap/v4-core)
-
-[v4-by-example](https://v4-by-example.org)
 

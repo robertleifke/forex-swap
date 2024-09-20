@@ -11,7 +11,7 @@ import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {CurrencyLibrary, Currency} from "v4-core/src/types/Currency.sol";
 import {PoolSwapTest} from "v4-core/src/test/PoolSwapTest.sol";
-import {Binary} from "../src/Binary.sol";
+import {Numo} from "../src/Numo.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {PositionConfig} from "v4-periphery/src/libraries/PositionConfig.sol";
 
@@ -25,7 +25,7 @@ contract CounterTest is Test, Fixtures {
     using CurrencyLibrary for Currency;
     using StateLibrary for IPoolManager;
 
-    Binary amm;
+    Numo amm;
     PoolId poolId;
 
     uint256 tokenId;
@@ -47,7 +47,7 @@ contract CounterTest is Test, Fixtures {
         );
         bytes memory constructorArgs = abi.encode(manager); //Add all the necessary constructor arguments from the hook
         deployCodeTo("Counter.sol:Counter", constructorArgs, flags);
-        amm = Binary(flags);
+        amm = Numo(flags);
 
         // Create the pool
         key = PoolKey(currency0, currency1, 3000, 60, IHooks(amm));

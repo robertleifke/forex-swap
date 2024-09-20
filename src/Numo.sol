@@ -10,7 +10,7 @@ import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeSwapDelta.sol";
 
-contract Binary is BaseHook {
+contract Numo is BaseHook {
     using PoolIdLibrary for PoolKey;
 
     // NOTE: ---------------------------------------------------------
