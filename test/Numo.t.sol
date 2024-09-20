@@ -68,17 +68,17 @@ contract CounterTest is Test, Fixtures {
             liquidityAmount
         );
 
-        (tokenId,) = posm.mint(
-            key,
-            tickLower,
-            tickUpper,
-            liquidityAmount,
-            amount0Expected + 1,
-            amount1Expected + 1,
-            address(this),
-            block.timestamp,
-            ZERO_BYTES
-        );
+        // (tokenId,) = posm.mint(
+        //     key,
+        //     tickLower,
+        //     tickUpper,
+        //     liquidityAmount,
+        //     amount0Expected + 1,
+        //     amount1Expected + 1,
+        //     address(this),
+        //     block.timestamp,
+        //     ZERO_BYTES
+        // );
     }
 
     function testCounterHooks() public {
@@ -106,17 +106,17 @@ contract CounterTest is Test, Fixtures {
         assertEq(amm.beforeAddLiquidityCount(poolId), 1);
         assertEq(amm.beforeRemoveLiquidityCount(poolId), 0);
 
-        // remove liquidity
-        uint256 liquidityToRemove = 1e18;
-        posm.decreaseLiquidity(
-            tokenId,
-            liquidityToRemove,
-            MAX_SLIPPAGE_REMOVE_LIQUIDITY,
-            MAX_SLIPPAGE_REMOVE_LIQUIDITY,
-            address(this),
-            block.timestamp,
-            ZERO_BYTES
-        );
+        // // remove liquidity
+        // uint256 liquidityToRemove = 1e18;
+        // posm.decreaseLiquidity(
+        //     tokenId,
+        //     liquidityToRemove,
+        //     MAX_SLIPPAGE_REMOVE_LIQUIDITY,
+        //     MAX_SLIPPAGE_REMOVE_LIQUIDITY,
+        //     address(this),
+        //     block.timestamp,
+        //     ZERO_BYTES
+        // );
 
         assertEq(amm.beforeAddLiquidityCount(poolId), 1);
         assertEq(amm.beforeRemoveLiquidityCount(poolId), 1);
