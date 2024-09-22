@@ -19,7 +19,7 @@ import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol
 import {EasyPosm} from "./utils/EasyPosm.sol";
 import {Fixtures} from "./utils/Fixtures.sol";
 
-contract CounterTest is Test, Fixtures {
+contract NumoTest is Test, Fixtures {
     using EasyPosm for IPositionManager;
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
@@ -61,12 +61,12 @@ contract CounterTest is Test, Fixtures {
 
         uint128 liquidityAmount = 100e18;
 
-        (uint256 amount0Expected, uint256 amount1Expected) = LiquidityAmounts.getAmountsForLiquidity(
-            SQRT_PRICE_1_1,
-            TickMath.getSqrtPriceAtTick(tickLower),
-            TickMath.getSqrtPriceAtTick(tickUpper),
-            liquidityAmount
-        );
+        // (uint256 amount0Expected, uint256 amount1Expected) = LiquidityAmounts.getAmountsForLiquidity(
+        //     SQRT_PRICE_1_1,
+        //     TickMath.getSqrtPriceAtTick(tickLower),
+        //     TickMath.getSqrtPriceAtTick(tickUpper),
+        //     liquidityAmount
+        // );
 
         // (tokenId,) = posm.mint(
         //     key,

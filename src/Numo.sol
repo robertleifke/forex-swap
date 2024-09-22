@@ -2,8 +2,8 @@
 pragma solidity ^0.8.24;
 
 import {BaseHook} from "v4-periphery/src/base/hooks/BaseHook.sol";
-
 import {Hooks} from "v4-core/src/libraries/Hooks.sol";
+import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
@@ -18,14 +18,21 @@ contract Numo is BaseHook {
     // a single hook contract should be able to service multiple pools
     // ---------------------------------------------------------------
 
-    mapping(PoolId => uint256 count) public beforeSwapCount;
-    mapping(PoolId => uint256 count) public afterSwapCount;
+    uint8[] public decimals;
 
-    mapping(PoolId => uint256 count) public beforeAddLiquidityCount;
-    mapping(PoolId => uint256 count) public beforeRemoveLiquidityCount;
-
-    constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
-
+    constructor(
+                IPoolManager _poolManager, 
+                IERC20[] memory _pooledTokens, 
+                uint8[] memory _decimals
+    )
+        BaseHook(_poolManager)
+    {
+        // Check _pooledTokens and precisions parameter
+        require(_pooledTokens.length == 2, "_pooledTokens.length == 2");  // Enforce that there are exactly 2 tokens
+        require(_pooledTokens.length == _decimals.length, "_pooledTokens decimals mismatch");  // Ensure token/decimal match
+        
+        decimals = _decimals;  // Store the decimals array
+    }
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
@@ -54,7 +61,6 @@ contract Numo is BaseHook {
         override
         returns (bytes4, BeforeSwapDelta, uint24)
     {
-        beforeSwapCount[key.toId()]++;
         return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
@@ -63,7 +69,6 @@ contract Numo is BaseHook {
         override
         returns (bytes4, int128)
     {
-        afterSwapCount[key.toId()]++;
         return (BaseHook.afterSwap.selector, 0);
     }
 
@@ -73,7 +78,6 @@ contract Numo is BaseHook {
         IPoolManager.ModifyLiquidityParams calldata,
         bytes calldata
     ) external override returns (bytes4) {
-        beforeAddLiquidityCount[key.toId()]++;
         return BaseHook.beforeAddLiquidity.selector;
     }
 
@@ -83,7 +87,6 @@ contract Numo is BaseHook {
         IPoolManager.ModifyLiquidityParams calldata,
         bytes calldata
     ) external override returns (bytes4) {
-        beforeRemoveLiquidityCount[key.toId()]++;
         return BaseHook.beforeRemoveLiquidity.selector;
     }
 }
