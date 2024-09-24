@@ -1,9 +1,12 @@
-# Numo
+# Replicant 🤖
+
+![image](https://github.com/user-attachments/assets/c174e6b2-6b7e-4494-805d-0a70f908a763)
+
 ### An automated market maker that sells options using Uniswap v4 liquidity.
 
 Numo uniquely enables an options market to exist on all tokens on the EVM. One could trade on Numo to speculate or hedge on token prices.  
 
-The solidity implementation for Numo is contained in this repository and is inspired by math that shows virtually [any option strategy can be constructed using CFMMs](https://arxiv.org/abs/2103.14769) and most importantly [RMM-01](https://www.primitive.xyz/papers/Whitepaper.pdf) built by the wonderful [@primitivefinance](https://github.com/primitivefinance) team. 
+The solidity implementation for Numo is contained in this repository and is inspired by the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that shows virtually any option strategy can be constructed using CFMMs and most importantly [RMM-01](https://www.primitive.xyz/papers/Whitepaper.pdf) built by the wonderful [@primitivefinance](https://github.com/primitivefinance) team. 
 
 
 ---
