@@ -1,8 +1,8 @@
 # Replicant 🤖
 
-![image](https://github.com/user-attachments/assets/c174e6b2-6b7e-4494-805d-0a70f908a763)
+#### An automated market maker that sells options using Uniswap v4 liquidity.
 
-### An automated market maker that sells options using Uniswap v4 liquidity.
+![image](https://github.com/user-attachments/assets/2129a6b7-678a-4620-8b07-c9a6d7c39575)
 
 Numo uniquely enables an options market to exist on all tokens on the EVM. One could trade on Numo to speculate or hedge on token prices.  
 
