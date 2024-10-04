@@ -7,3 +7,6 @@
 [submodule "lib/v4-core"]
 	path = lib/v4-core
 	url = https://github.com/uniswap/v4-core
+[submodule "lib/openzeppelin-foundry-upgrades"]
+	path = lib/openzeppelin-foundry-upgrades
+	url = https://github.com/OpenZeppelin/openzeppelin-foundry-upgrades
