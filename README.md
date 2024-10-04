@@ -1,19 +1,11 @@
-# Numo 🤖
+# Numo 🟩 
 
 #### A stable, inflation resistant cryptocurrency
 
-Numo uniquely enables a stable cryptocurrency resistant to inflation by utilizing specialized automated market makers. These automated market makers provision liquidity to an  option strategy that minimizes price volatility on any collateral.  
+Numo uniquely enables a stable cryptocurrency resistant to inflation by utilizing specialized automated market makers. These automated market makers built with @Uniswap V4 provision liquidity to an  option strategy that minimizes price volatility.  
 
 The solidity implementation for Numo is contained in this repository and is inspired by the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that shows virtually any option strategy can be constructed using CFMMs and [RMM-01](https://www.primitive.xyz/papers/Whitepaper.pdf) built by the wonderful [@primitivefinance](https://github.com/primitivefinance) team. 
 
----
-
-## Check Forge Installation
-*Ensure that you have correctly installed Foundry (Forge) and that it's up to date. You can update Foundry by running:*
-
-```
-foundryup
-```
 
 ## Set up
 
