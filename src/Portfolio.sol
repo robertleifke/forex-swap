@@ -10,29 +10,30 @@ import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeSwapDelta.sol";
 
-contract Numo is BaseHook {
+// This contract, Portfolio, is a custom hook for Uniswap v4 pools.
+// It extends BaseHook, which provides basic functionality for interacting with the Uniswap v4 core.
+
+contract Portfolio is BaseHook {
     using PoolIdLibrary for PoolKey;
 
-    // NOTE: ---------------------------------------------------------
-    // state variables should typically be unique to a pool
-    // a single hook contract should be able to service multiple pools
-    // ---------------------------------------------------------------
-
+    // State variable to store the decimal places of the pooled tokens
     uint8[] public decimals;
 
+    // Constructor initializes the contract with the pool manager, pooled tokens, and their decimal places
     constructor(
-                IPoolManager _poolManager, 
-                ERC20[] memory _pooledTokens, 
-                uint8[] memory _decimals
+        IPoolManager _poolManager, 
+        ERC20[] memory _risky,
+        ERC20[] memory _stable, 
+        uint8[] memory _decimals
     )
         BaseHook(_poolManager)
-    {
-        // Check _pooledTokens and precisions parameter
-        require(_pooledTokens.length == 2, "_pooledTokens.length == 2");  // Enforce that there are exactly 2 tokens
-        require(_pooledTokens.length == _decimals.length, "_pooledTokens decimals mismatch");  // Ensure token/decimal match
-        
-        decimals = _decimals;  // Store the decimals array
+    {   
+        // Store the decimal places of the tokens
+        decimals = _decimals;
     }
+
+    // Define the permissions for this hook
+    // This determines which Uniswap v4 lifecycle events the hook can interact with
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: false,
@@ -52,10 +53,8 @@ contract Numo is BaseHook {
         });
     }
 
-    // -----------------------------------------------
-    // NOTE: see IHooks.sol for function documentation
-    // -----------------------------------------------
-
+    // Hook function called before a swap occurs
+    // Currently, it doesn't modify the swap behavior
     function beforeSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata, bytes calldata)
         external
         override
@@ -64,6 +63,8 @@ contract Numo is BaseHook {
         return (BaseHook.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
 
+    // Hook function called after a swap occurs
+    // Currently, it doesn't perform any actions post-swap
     function afterSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata, BalanceDelta, bytes calldata)
         external
         override
@@ -72,6 +73,8 @@ contract Numo is BaseHook {
         return (BaseHook.afterSwap.selector, 0);
     }
 
+    // Hook function called before liquidity is added to the pool
+    // Currently, it doesn't modify the liquidity addition process
     function beforeAddLiquidity(
         address,
         PoolKey calldata key,
@@ -81,6 +84,8 @@ contract Numo is BaseHook {
         return BaseHook.beforeAddLiquidity.selector;
     }
 
+    // Hook function called before liquidity is removed from the pool
+    // Currently, it doesn't modify the liquidity removal process
     function beforeRemoveLiquidity(
         address,
         PoolKey calldata key,
