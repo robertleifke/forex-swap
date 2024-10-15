@@ -6,10 +6,10 @@ import {IERC6909Claims} from "v4-core/src/interfaces/external/IERC6909Claims.sol
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {AmplificationUtilsV2} from "@main/AmplificationUtilsV2.sol";
+import {VolatilityUtils} from "src/VolatilityUtils.sol";
 
-import {LPTokenV2} from "@main/LPTokenV2.sol";
-import {MathUtilsV1} from  "@main/MathUtilsV1.sol";
+import {NumoToken} from "src/NumoToken.sol";
+import {MathUtils} from  "src/MathUtils.sol";
 
 
 /**
@@ -19,7 +19,7 @@ import {MathUtilsV1} from  "@main/MathUtilsV1.sol";
  * for SwapUtils.Swap struct. Note that this library contains both functions called by users and admins.
  * Admin functions should be protected within contracts using this library.
  */
-library SwapUtilsV2 {
+library PortfolioUtilsV2 {
     using SafeERC20 for IERC20;
     using CurrencyLibrary for Currency;
     using CurrencySettler for Currency;
@@ -39,12 +39,12 @@ library SwapUtilsV2 {
         uint256[] tokenAmounts,
         uint256[] fees,
         uint256 invariant,
-        uint256 lpTokenSupply
+        uint256 numoSupply
     );
     event RemoveLiquidity(
         address indexed provider,
         uint256[] tokenAmounts,
-        uint256 lpTokenSupply
+        uint256 numoSupply
     );
     event NewAdminFee(uint256 newAdminFee);
     event NewSwapFee(uint256 newSwapFee);
@@ -83,7 +83,7 @@ library SwapUtilsV2 {
         uint256 d1;
         uint256 d2;
         uint256 preciseA;
-        LPTokenV2 lpToken;
+        NumoToken numoToken;
         uint256 totalSupply;
         uint256[] balances;
         uint256[] multipliers;

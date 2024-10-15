@@ -10,13 +10,13 @@ import {PortfolioUtils} from "src/PortfolioUtils.sol";
  * This library assumes the struct is fully validated.
  */
 library VolatilityFactor {
-    event RampA(
+    event ModifyVolatility(
         uint256 oldVolatility,
         uint256 newVolatility,
         uint256 initialTime,
         uint256 futureTime
     );
-    event StopRampA(uint256 currentA, uint256 time);
+    event StopModifyVolatility(uint256 currentVolatility, uint256 time);
 
     // Constant values used in ramping A calculations
     uint256 public constant VOLATILITY_PRECISION = 100;
@@ -89,7 +89,7 @@ library VolatilityFactor {
      * @param futureA_ the new A to ramp towards
      * @param futureTime_ timestamp when the new A should be reached
      */
-    function rampA(
+    function modifyVolatility(
         PortfolioUtils.Swap storage self,
         uint256 futureVolatility_,
         uint256 futureTime_
@@ -112,13 +112,13 @@ library VolatilityFactor {
 
         if (futureVolatilityPrecise < initialVolatilityPrecise) {
             require(
-                (futureAPrecise * MAX_A_CHANGE) >= initialAPrecise,
-                "futureA_ is too small"
+                (futureVolatilityPrecise * MAX_VOLATILITY_CHANGE) >= initialVolatilityPrecise,
+                "futureVolatility_ is too small"
             );
         } else {
             require(
-                futureAPrecise <= (initialAPrecise * MAX_A_CHANGE),
-                "futureA_ is too large"
+                futureVolatilityPrecise <= (initialVolatilityPrecise * MAX_VOLATILITY_CHANGE),
+                "futureVolatility_ is too large"
             );
         }
 
@@ -127,7 +127,7 @@ library VolatilityFactor {
         self.initialATime = block.timestamp;
         self.futureATime = futureTime_;
 
-        emit RampVolatility(
+        emit ModifyVolatility(
             initialVolatilityPrecise,
             futureVolatilityPrecise,
             block.timestamp,
