@@ -1,6 +1,9 @@
 # Numo 🟩 
 
-#### A stable, inflation resistant cryptocurrency
+[![Fuzz Testing](https://github.com/Uniswap/uniswap-v3-core/actions/workflows/fuzz-testing.yml/badge.svg)](https://github.com/numocash/numo/actions/workflows/fuzz-testing.yml)
+[![npm version](https://img.shields.io/npm/v/@uniswap/v3-core/latest.svg)](https://www.npmjs.com/package/@numocash/numo/v/latest)
+
+#### A stable, volatility-resistant cryptocurrency
 
 Numo uniquely enables a stable cryptocurrency resistant to dollar inflation by utilizing specialized automated market makers. These automated market makers built with [Uniswap](https://github.com/Uniswap/v4-core) V4 provision liquidity to an  option strategy that minimizes price volatility.  
 

@@ -7,7 +7,7 @@ pragma solidity ^0.8.0;
  * @notice A library to be used in conjunction with SafeMath. Contains functions for calculating
  * differences between two uint256.
  */
-library MathUtilsV1 {
+library MathUtils {
     /**
      * @notice Compares a and b and returns true if the difference between a and b
      *         is less than 1 or equal to each other.

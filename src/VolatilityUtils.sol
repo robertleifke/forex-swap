@@ -9,7 +9,7 @@ import {PortfolioUtils} from "src/PortfolioUtils.sol";
  * @notice A library to calculate and modify the volatility parameter of a given `PortfolioUtils.Swap` struct.
  * This library assumes the struct is fully validated.
  */
-library VolatilityFactor {
+library VolatilityUtils {
     event ModifyVolatility(
         uint256 oldVolatility,
         uint256 newVolatility,

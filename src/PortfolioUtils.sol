@@ -13,13 +13,13 @@ import {MathUtils} from  "src/MathUtils.sol";
 
 
 /**
- * @title SwapUtils library
+ * @title PortfolioUtils library
  * @notice A library to be used within Swap.sol. Contains functions responsible for custody and AMM functionalities.
  * @dev Contracts relying on this library must initialize SwapUtils.Swap struct then use this library
  * for SwapUtils.Swap struct. Note that this library contains both functions called by users and admins.
  * Admin functions should be protected within contracts using this library.
  */
-library PortfolioUtilsV2 {
+library PortfolioUtils {
     using SafeERC20 for IERC20;
     using CurrencyLibrary for Currency;
     using CurrencySettler for Currency;
@@ -79,11 +79,11 @@ library PortfolioUtilsV2 {
     // Struct storing variables used in calculations in the
     // {add,remove}Liquidity functions to avoid stack too deep errors
     struct ManageLiquidityInfo {
-        uint256 d0;
-        uint256 d1;
-        uint256 d2;
-        uint256 preciseA;
-        NumoToken numoToken;
+        uint256 invariantInitial;
+        uint256 invariantBeforeFees;
+        uint256 invariantAfterFees;
+        uint256 preciseVolatility;
+        NumoToken numo;
         uint256 totalSupply;
         uint256[] balances;
         uint256[] multipliers;
@@ -111,7 +111,7 @@ library PortfolioUtilsV2 {
     /*** VIEW & PURE FUNCTIONS ***/
 
     function _getAPrecise(Swap storage self) internal view returns (uint256) {
-        return AmplificationUtilsV2._getAPrecise(self);
+        return VolatilityUtils._getAPrecise(self);
     }
 
     function _getSwapFee(Swap storage self) internal view returns (uint256) {
@@ -123,14 +123,14 @@ library PortfolioUtilsV2 {
     }
 
     /**
-     * @notice Get Delta, the RMM-01 invariant, based on a set of balances and a particular A.
+     * @notice Get Delta, the RMM-01 invariant, based on a set of balances and a particular volatility.
      * @param xp a precision-adjusted set of pool balances. Array should be the same cardinality
      * as the pool.
-     * @param a the volatility factor * n * (n - 1) in A_PRECISION.
+     * @param volatility the volatility factor * n * (n - 1) in A_PRECISION.
      * See the StableSwap paper for details
      * @return the invariant, at the precision of the pool
      */
-    function getDelta(uint256[] memory xp, uint256 a)
+    function getDelta(uint256[] memory xp, uint256 volatility)
         internal
         pure
         returns (uint256)
@@ -146,7 +146,7 @@ library PortfolioUtilsV2 {
         
         uint256 prevDelta;
         uint256 delta = s;
-        uint256 nA = a * numTokens;
+        uint256 nVolatility = volatility * numTokens;
 
         // Newton's method to approximate D
         // This iterative approach aims to find D that satisfies the StableSwap invariant:
@@ -159,8 +159,8 @@ library PortfolioUtilsV2 {
             prevD = d;
             // The goal is to find D that makes the following equation true:
             // D^(n+1) / (n^n * prod(x_i)) = (A * sum(x_i) + D * (n * A - 1)) / ((n * A - 1) + n)
-            d = (((nA * s) / AmplificationUtilsV2.A_PRECISION) + (dP * numTokens)) * d /
-                ((((nA - AmplificationUtilsV2.A_PRECISION) * d) / AmplificationUtilsV2.A_PRECISION) + ((numTokens + 1) * dP));
+            d = (((nA * s) / VolatilityUtils.VOLATILITY_PRECISION) + (dP * numTokens)) * d /
+                ((((nA - VolatilityUtils.VOLATILITY_PRECISION) * d) / VolatilityUtils.VOLATILITY_PRECISION) + ((numTokens + 1) * dP));
 
             // Equality with tolerance of 1
             if (d.within1(prevD)) {
@@ -227,7 +227,7 @@ library PortfolioUtilsV2 {
      * @return the amount of TO token that should remain in the pool
      */
     function getY(
-        uint256 preciseA,
+        uint256 preciseVolatility,
         uint8 tokenIndexFrom,
         uint8 tokenIndexTo,
         uint256 x,
@@ -243,10 +243,10 @@ library PortfolioUtilsV2 {
             "Tokens must be in pool"
         );
 
-        uint256 d = getD(xp, preciseA);
+        uint256 d = getD(xp, preciseVolatility);
         uint256 c = d;
         uint256 s;
-        uint256 nA = numTokens * preciseA;
+        uint256 nVolatility = numTokens * preciseVolatility;
 
         uint256 _x;
         for (uint256 i = 0; i < numTokens; i++) {
@@ -263,8 +263,8 @@ library PortfolioUtilsV2 {
             // and divide at the end. However this leads to overflow with large numTokens or/and D.
             // c = c * D * D * D * ... overflow!
         }
-        c = (c * d * AmplificationUtilsV2.A_PRECISION) / (nA * numTokens);
-        uint256 b = s + ((d * AmplificationUtilsV2.A_PRECISION) / nA);
+        c = (c * d * VolatilityUtils.VOLATILITY_PRECISION) / (nVolatility * numTokens);
+        uint256 b = s + ((d * VolatilityUtils.VOLATILITY_PRECISION) / nVolatility);
         uint256 yPrev;
         uint256 y = d;
 
