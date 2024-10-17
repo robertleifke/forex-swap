@@ -17,7 +17,7 @@ import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 import {NumoToken} from "./NumoToken.sol";
 import {PortfolioUtils} from "./PortfolioUtils.sol";
 import {VolatilityUtils} from "./VolatilityUtils.sol";
-import {VolatilityUtilsV2} from "./VolatilityUtils.sol";
+import {VolatilityUtils} from "./VolatilityUtils.sol";
 
 // Define the SwapStorage struct
 struct SwapStorage {

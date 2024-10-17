@@ -3,9 +3,9 @@
 [![Fuzz Testing](https://github.com/Uniswap/uniswap-v3-core/actions/workflows/fuzz-testing.yml/badge.svg)](https://github.com/numocash/numo/actions/workflows/fuzz-testing.yml)
 [![npm version](https://img.shields.io/npm/v/@uniswap/v3-core/latest.svg)](https://www.npmjs.com/package/@numocash/numo/v/latest)
 
-#### A stable, volatility-resistant cryptocurrency
+#### A tokenized strategy that sells covered call options on stETH.
 
-Numo uniquely enables a stable cryptocurrency resistant to dollar inflation by utilizing specialized automated market makers. These automated market makers built with [Uniswap](https://github.com/Uniswap/v4-core) V4 provision liquidity to an  option strategy that minimizes price volatility.  
+Numo enables anyone to earn sustainable yield via `theta decay` on their staked ETH tokens. Built as a Uniswap V4 hook, Numo algorithmically manages the strategy and makes it accessible to anyone as a ERC-20 token.
 
 The solidity implementation for Numo is contained in this repository and is inspired by the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that shows virtually any option strategy can be constructed using CFMMs and [RMM-01](https://www.primitive.xyz/papers/Whitepaper.pdf) built by the wonderful [@primitivefinance](https://github.com/primitivefinance) team. 
 
