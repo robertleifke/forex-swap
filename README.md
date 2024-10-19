@@ -1,4 +1,4 @@
-# Numo 🟩 
+# Replicator 2 🟩 
 
 [![Fuzz Testing](https://github.com/Uniswap/uniswap-v3-core/actions/workflows/fuzz-testing.yml/badge.svg)](https://github.com/numocash/numo/actions/workflows/fuzz-testing.yml)
 [![npm version](https://img.shields.io/npm/v/@uniswap/v3-core/latest.svg)](https://www.npmjs.com/package/@numocash/numo/v/latest)
