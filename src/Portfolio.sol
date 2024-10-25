@@ -84,25 +84,12 @@ contract Portfolio is BaseHook, Ownable {
         uint256 _fee,
         uint256 _adminFee
     ) BaseHook(_poolManager) Ownable(msg.sender) payable {
-        // todo configre Ownable's params
-
-        // Check _pooledTokens and precisions parameter
         require(_pooledTokens.length == 2, "_pooledTokens.length == 2");
 
-        // require(_pooledTokens.length > 1, "_pooledTokens.length <= 1");
-        // require(_pooledTokens.length <= 32, "_pooledTokens.length > 32");
         require(
             _pooledTokens.length == _decimals.length,
             "_pooledTokens decimals mismatch"
         );
-
-        // IERC20[] memory _sortedPooledTokens = new IERC20[](decimals.length);
-
-        // address tokenA =  address(_pooledTokens[0]);
-        // address tokenB =  address(_pooledTokens[1]);
-
-        // uint8 decimalA;
-        // uint8 decimalB;
 
         (address quote, address asset, uint8 quoteDecimal, uint8 assetDecimal)
             = address(_pooledTokens[0]) < address(_pooledTokens[1]) ?
