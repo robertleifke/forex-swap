@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
-
 import {Gaussian} from "solstat/Gaussian.sol";
-import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
-import {ERC20} from "solmate/tokens/ERC20.sol";
+import {FixedPointMathLib} from "lib/solmate/src/utils/FixedPointMathLib.sol";
+import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
 import {ToUintOverflow, ToIntOverflow} from "./PortfolioErrors.sol";
 
 using FixedPointMathLib for uint256;
@@ -14,7 +13,6 @@ struct PoolPreCompute {
     uint256 strike_;
     uint256 tau_;
 }
-
 
 function computeLnSDivK(uint256 S, uint256 strike_) pure returns (int256) {
     return int256(S.divWadDown(strike_)).lnWad();

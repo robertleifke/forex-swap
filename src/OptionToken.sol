@@ -5,12 +5,12 @@ import { ERC20BurnableUpgradeable} from "@openzeppelin/contracts-upgradeable/tok
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 /**
- * @title Liquidity Provider Token
+ * @title Option Token
  * @notice This token is an ERC20 detailed token with added capability to be minted by the owner.
  * It is used to represent user's shares when providing liquidity to swap contracts.
  * @dev Only Swap contracts should initialize and own LPToken contracts.
  */
-contract NumoToken is ERC20BurnableUpgradeable, OwnableUpgradeable {
+contract OptionToken is ERC20BurnableUpgradeable, OwnableUpgradeable {
     /**
      * @notice Initializes this LPToken contract with the given name and symbol
      * @dev The caller of this function will become the owner. A Swap contract should call this

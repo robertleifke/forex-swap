@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {PortfolioUtils} from "src/PortfolioUtils.sol";
+import {PortfolioUtils} from "src/utils/PortfolioUtils.sol";
 
 /**
  * @title Volatility library

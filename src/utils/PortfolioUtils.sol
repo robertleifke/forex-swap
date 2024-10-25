@@ -6,10 +6,10 @@ import {IERC6909Claims} from "v4-core/src/interfaces/external/IERC6909Claims.sol
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {VolatilityUtils} from "src/VolatilityUtils.sol";
+import {VolatilityUtils} from "src/utils/VolatilityUtils.sol";
 
-import {NumoToken} from "src/NumoToken.sol";
-import {MathUtils} from  "src/MathUtils.sol";
+import {OptionToken} from "src/OptionToken.sol";
+import {MathUtils} from  "src/utils/MathUtils.sol";
 
 
 /**
@@ -219,7 +219,7 @@ library PortfolioUtils {
      * This function is used as a helper function to calculate how much TO token
      * the user should receive on swap.
      *
-     * @param preciseA precise form of amplification coefficient
+     * @param preciseVolatility precise form of volatility coefficient
      * @param tokenIndexFrom index of FROM token
      * @param tokenIndexTo index of TO token
      * @param x the new total amount of FROM token

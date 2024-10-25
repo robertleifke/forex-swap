@@ -14,15 +14,14 @@ import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
-import {NumoToken} from "./NumoToken.sol";
-import {PortfolioUtils} from "./PortfolioUtils.sol";
-import {VolatilityUtils} from "./VolatilityUtils.sol";
-import {VolatilityUtils} from "./VolatilityUtils.sol";
+import {OptionToken} from "./OptionToken.sol";
+import {PortfolioUtils} from "./utils/PortfolioUtils.sol";
+import {VolatilityUtils} from "./utils/VolatilityUtils.sol";
 
 // Define the SwapStorage struct
 struct SwapStorage {
     IPoolManager poolManager;
-    NumoToken numo;
+    OptionToken numo;
     IERC20[] pooledTokens;
     uint256[] tokenPrecisionMultipliers;
     uint256[] balances;
@@ -131,7 +130,7 @@ contract Portfolio is BaseHook, Ownable {
         }
 
         // Check _a, _fee, _adminFee, _withdrawFee parameters
-        require(_volatility < AmplificationUtilsV2.MAX_A, "_a exceeds maximum");
+        require(_volatility < VolatilityUtils.MAX_VOLATILITY, "_volatility exceeds maximum");
         require(_fee < PortfolioUtils.MAX_SWAP_FEE, "_fee exceeds maximum");
         require(
             _adminFee < PortfolioUtils.MAX_ADMIN_FEE,
