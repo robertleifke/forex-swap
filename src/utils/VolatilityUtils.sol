@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {PortfolioUtils} from "src/utils/PortfolioUtils.sol";
+import {MarketUtils} from "./utils/MarketUtils.sol";
 
 /**
  * @title Volatility library
@@ -30,7 +30,7 @@ library VolatilityUtils {
      * @param self Swap struct to read from
      * @return sigma parameter
      */
-    function getVolatility(PortfolioUtils.Swap storage self)
+    function getVolatility(MarketUtils.Swap storage self)
         external
         view
         returns (uint256)
@@ -44,7 +44,7 @@ library VolatilityUtils {
      * @param self Swap struct to read from
      * @return volatility parameter in its raw precision form
      */
-    function getVolatilityPrecise(PortfolioUtils.Swap storage self)
+    function getVolatilityPrecise(MarketUtils.Swap storage self)
         external
         view
         returns (uint256)
@@ -58,7 +58,7 @@ library VolatilityUtils {
      * @param self Swap struct to read from
      * @return volatility parameter in its raw precision form
      */
-    function _getVolatilityPrecise(PortfolioUtils.Swap storage self)
+    function _getVolatilityPrecise(MarketUtils.Swap storage self)
         internal
         view
         returns (uint256)
@@ -90,7 +90,7 @@ library VolatilityUtils {
      * @param futureTime_ timestamp when the new A should be reached
      */
     function modifyVolatility(
-        PortfolioUtils.Swap storage self,
+        MarketUtils.Swap storage self,
         uint256 futureVolatility_,
         uint256 futureTime_
     ) external {
@@ -140,7 +140,7 @@ library VolatilityUtils {
      * cannot be called for another 24 hours
      * @param self Swap struct to update
      */
-    function stopModifyVolatility(PortfolioUtils.Swap storage self) external {
+    function stopModifyVolatility(MarketUtils.Swap storage self) external {
         require(self.futureVolatilityTime > block.timestamp, "Modify is already stopped");
 
         uint256 currentVolatility = _getVolatilityPrecise(self);

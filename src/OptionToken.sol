@@ -36,7 +36,7 @@ contract OptionToken is ERC20BurnableUpgradeable, OwnableUpgradeable {
      * @param amount amount of tokens to mint
      */
     function mint(address recipient, uint256 amount) external onlyOwner {
-        require(amount != 0, "LPToken: cannot mint 0");
+        require(amount != 0, "OptionToken: cannot mint 0");
         _mint(recipient, amount);
     }
 
@@ -51,7 +51,7 @@ contract OptionToken is ERC20BurnableUpgradeable, OwnableUpgradeable {
      */
     function _update(address from, address to, uint256 value) internal virtual override {
         super._update(from, to, value);
-        require(to != address(this), "LPToken: cannot send to itself");
+        require(to != address(this), "OptionToken: cannot send to itself");
     }
 
 }

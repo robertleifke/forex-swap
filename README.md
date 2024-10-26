@@ -1,14 +1,15 @@
-# Replicator 2 🟩 
+# Numo 🟩 
 
 [![Fuzz Testing](https://github.com/Uniswap/uniswap-v3-core/actions/workflows/fuzz-testing.yml/badge.svg)](https://github.com/numocash/numo/actions/workflows/fuzz-testing.yml)
 [![npm version](https://img.shields.io/npm/v/@uniswap/v3-core/latest.svg)](https://www.npmjs.com/package/@numocash/numo/v/latest)
 
-#### A tokenized strategy that sells covered call options on stETH.
+### A market maker for call options on FX pairs (e.g. USD/EUR).
 
-Numo enables anyone to earn sustainable yield via `theta decay` on their staked ETH tokens. Built as a Uniswap V4 hook, Numo algorithmically manages the strategy and makes it accessible to anyone as a ERC-20 token.
+The smart contract suite is a Uniswap V4 hook and is inspired by @primitivefinance's open source [RMM-01](https://github.com/primitivefinance/rmm) implementation and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first proved any option strategy can be constructed using CFMMs.
 
-The solidity implementation for Numo is contained in this repository and is inspired by the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that shows virtually any option strategy can be constructed using CFMMs and [RMM-01](https://www.primitive.xyz/papers/Whitepaper.pdf) built by the wonderful [@primitivefinance](https://github.com/primitivefinance) team. 
+Liquidity providers on Numo earn sustainable yield from selling [european-style call options](https://en.wikipedia.org/wiki/European_option). As in traditional options markets, **sellers** earn premiums from "theta decay." However, these premiums are paid by traders directly who swap on the underlying liquidity. In the future, a batch auction can be implemented to match buyers and sellers or calls could be directly sold on an exisiting options market (e.g. CME). These would optimize the premiums earned for option sellers.
 
+Numo deploys a `market` instance for each FX pair. Each `market` can handle any two arbitrary ERC-20 token and follows the standard naming conventions seen in traditional FX markets (`base`/`quote`).
 
 ## Set up
 
