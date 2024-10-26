@@ -10,7 +10,7 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
  * It is used to represent user's shares when providing liquidity to swap contracts.
  * @dev Only Swap contracts should initialize and own LPToken contracts.
  */
-contract OptionToken is ERC20BurnableUpgradeable, OwnableUpgradeable {
+contract Option is ERC20BurnableUpgradeable, OwnableUpgradeable {
     /**
      * @notice Initializes this LPToken contract with the given name and symbol
      * @dev The caller of this function will become the owner. A Swap contract should call this

@@ -14,7 +14,7 @@ import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
-import {OptionToken} from "./OptionToken.sol";
+import {Option} from "./Option.sol";
 import {PortfolioUtils} from "./utils/MarketUtils.sol";
 import {VolatilityUtils} from "./utils/VolatilityUtils.sol";
 import {MarketLib} from "./lib/MarketLib.sol";
@@ -22,7 +22,7 @@ import {MarketLib} from "./lib/MarketLib.sol";
 // Define the SwapStorage struct
 struct SwapStorage {
     IPoolManager poolManager;
-    OptionToken numo;
+    Option option;
     IERC20[] pooledTokens;
     uint256[] tokenPrecisionMultipliers;
     uint256[] balances;
@@ -53,8 +53,8 @@ contract Market is BaseHook, Ownable {
      * @param _pooledTokens an array of ERC20s this pool will accept
      * @param decimals the decimals to use for each pooled token,
      * eg 8 for WBTC. Cannot be larger than POOL_PRECISION_DECIMALS
-     * @param _optionTokenName the long-form name of the token to be deployed
-     * @param _optionTokenSymbol the short symbol for the token to be deployed
+     * @param _optionName the long-form name of the token to be deployed
+     * @param _optionSymbol the short symbol for the token to be deployed
      * @param _volatility the amplification coefficient * n * (n - 1). See the
      * StableSwap paper for details
      * @param _fee default swap fee to be initialized with
@@ -64,8 +64,8 @@ contract Market is BaseHook, Ownable {
         IPoolManager _poolManager,
         IERC20[] memory _pooledTokens,
         uint8[] memory _decimals,
-        string memory _numoTokenName,
-        string memory _numoTokenSymbol,
+        string memory _optionName,
+        string memory _optionSymbol,
         uint256 _sigma,
         uint256 _fee,
         uint256 _adminFee
@@ -124,17 +124,17 @@ contract Market is BaseHook, Ownable {
             "_adminFee exceeds maximum"
         );
 
-        // Deploy and initialize a OptionToken contract
-        OptionToken coveredCall = new OptionToken();
+        // Deploy and initialize an Option contract
+        Option option = new Option();
 
         require(
-            numo.initialize(_optionTokenName, _optionTokenSymbol, address(this)),
-            "could not init coveredCall clone"
+            option.initialize(_optionName, _optionSymbol, address(this)),
+            "could not init option clone"
         );
 
         // Initialize swapStorage struct
         swapStorage.poolManager = _poolManager;
-        swapStorage.numo = coveredCall;
+        swapStorage.option = option;
 
         // to do : remove scatch work
         // LPTokenV2 lpToken = LPTokenV2(Clones.clone(lpTokenTargetAddress));
@@ -144,7 +144,7 @@ contract Market is BaseHook, Ownable {
         // );
 
         // Initialize swapStorage struct
-        swapStorage.lpToken = coveredCall;
+        swapStorage.lpToken = option;
         //to do :  sort pooledTokens
         swapStorage.pooledTokens = _pooledTokens;
         swapStorage.tokenPrecisionMultipliers = precisionMultipliers;
@@ -270,7 +270,7 @@ contract Market is BaseHook, Ownable {
         return BaseHook.beforeRemoveLiquidity.selector;
     }
 
-    function getOptionToken() public view returns (OptionToken) {
-        return swapStorage.numo;
+    function getOptionToken() public view returns (Option) {
+        return swapStorage.option;
     }
 }
