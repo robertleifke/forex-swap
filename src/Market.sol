@@ -26,8 +26,7 @@ struct SwapStorage {
     IERC20[] pooledTokens;
     uint256[] tokenPrecisionMultipliers;
     uint256[] balances;
-    uint256 initialA;
-    uint256 futureA;
+    uint256 sigma;  // Volatility
     uint256 swapFee;
     uint256 adminFee;
     PoolKey poolKey;
@@ -41,6 +40,9 @@ contract Market is BaseHook, Ownable {
 
     // State variable to store the decimal places of the pooled tokens
     uint8[] public decimals;
+
+    // State variable to store the SwapStorage struct
+    SwapStorage public swapStorage;
 
     /**
      * @notice Initializes this Swap contract with the given parameters.
@@ -64,7 +66,7 @@ contract Market is BaseHook, Ownable {
         uint8[] memory _decimals,
         string memory _numoTokenName,
         string memory _numoTokenSymbol,
-        uint256 _volatility,
+        uint256 _sigma,
         uint256 _fee,
         uint256 _adminFee
     ) BaseHook(_poolManager) Ownable(msg.sender) payable {
@@ -115,7 +117,7 @@ contract Market is BaseHook, Ownable {
         }
 
         // Check _a, _fee, _adminFee, _withdrawFee parameters
-        require(_volatility < VolatilityUtils.MAX_VOLATILITY, "_volatility exceeds maximum");
+        require(_sigma < VolatilityUtils.MAX_VOLATILITY, "_sigma exceeds maximum");
         require(_fee < MarketUtils.MAX_SWAP_FEE, "_fee exceeds maximum");
         require(
             _adminFee < MarketUtils.MAX_ADMIN_FEE,
@@ -131,8 +133,8 @@ contract Market is BaseHook, Ownable {
         );
 
         // Initialize swapStorage struct
-        swapStorage.poolManager = address(_poolManager);
-        swapStorage.coveredCall = coveredCall;
+        swapStorage.poolManager = _poolManager;
+        swapStorage.numo = coveredCall;
 
         // to do : remove scatch work
         // LPTokenV2 lpToken = LPTokenV2(Clones.clone(lpTokenTargetAddress));
@@ -147,10 +149,7 @@ contract Market is BaseHook, Ownable {
         swapStorage.pooledTokens = _pooledTokens;
         swapStorage.tokenPrecisionMultipliers = precisionMultipliers;
         swapStorage.balances = new uint256[](_pooledTokens.length);
-        swapStorage.initialA = _volatility * VolatilityUtils.VOLATILITY_PRECISION;
-        swapStorage.futureA = _volatility * VolatilityUtils.VOLATILITY_PRECISION;
-        // swapStorage.initialATime = 0;
-        // swapStorage.futureATime = 0;
+        swapStorage.sigma = _sigma;
         swapStorage.swapFee = _fee;
         swapStorage.adminFee = _adminFee;
 
@@ -272,6 +271,6 @@ contract Market is BaseHook, Ownable {
     }
 
     function getOptionToken() public view returns (OptionToken) {
-        return swapStorage.coveredCall;
+        return swapStorage.numo;
     }
 }
