@@ -15,8 +15,7 @@ import {Currency} from "v4-core/src/types/Currency.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
 
 import {Option} from "./Option.sol";
-import {PortfolioUtils} from "./utils/MarketUtils.sol";
-import {VolatilityUtils} from "./utils/VolatilityUtils.sol";
+import {MathUtils} from "./utils/MathUtils.sol";
 import {MarketLib} from "./lib/MarketLib.sol";
 
 // Define the SwapStorage struct
@@ -45,8 +44,8 @@ contract Market is BaseHook, Ownable {
     SwapStorage public swapStorage;
 
     /**
-     * @notice Initializes this Swap contract with the given parameters.
-     * The owner of LPToken will be this contract - which means
+     * @notice Initializes this pool contract with the given parameters.
+     * The owner of option will be this contract - which means
      * only this contract is allowed to mint/burn tokens.
      *
      * @param _poolManager reference to Uniswap v4 position manager
@@ -55,8 +54,9 @@ contract Market is BaseHook, Ownable {
      * eg 8 for WBTC. Cannot be larger than POOL_PRECISION_DECIMALS
      * @param _optionName the long-form name of the token to be deployed
      * @param _optionSymbol the short symbol for the token to be deployed
-     * @param _volatility the amplification coefficient * n * (n - 1). See the
-     * StableSwap paper for details
+     * @param _volatility the implied volatility of the option
+     * @param _strike the strike price of the option
+     * @param _tau the time to maturity of the option
      * @param _fee default swap fee to be initialized with
      * @param _adminFee default adminFee to be initialized with
      */    
@@ -67,6 +67,8 @@ contract Market is BaseHook, Ownable {
         string memory _optionName,
         string memory _optionSymbol,
         uint256 _sigma,
+        uint256 _strike,
+        uint256 _tau,
         uint256 _fee,
         uint256 _adminFee
     ) BaseHook(_poolManager) Ownable(msg.sender) payable {
@@ -144,18 +146,15 @@ contract Market is BaseHook, Ownable {
         // );
 
         // Initialize swapStorage struct
-        swapStorage.lpToken = option;
-        //to do :  sort pooledTokens
+        swapStorage.option = option;
         swapStorage.pooledTokens = _pooledTokens;
         swapStorage.tokenPrecisionMultipliers = precisionMultipliers;
         swapStorage.balances = new uint256[](_pooledTokens.length);
-        swapStorage.sigma = _sigma;
+        swapStorage.volatility = _volatility; 
+        swapStorage.strike = _strike;
+        swapStorage.tau = _tau;
         swapStorage.swapFee = _fee;
         swapStorage.adminFee = _adminFee;
-
-        // to do : add PoolKey  key  
-        // to do : initalize Uni Pool here or just store ?
-
         swapStorage.poolKey = PoolKey({
           currency0: Currency.wrap(base),
           currency1: Currency.wrap(quote),
