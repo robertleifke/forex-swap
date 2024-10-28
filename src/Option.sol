@@ -1,58 +1,133 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-// import { ERC20 } from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import { ERC20Upgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 
-// /**
-//  * @title Option Token
-//  * @notice This token is an ERC20 detailed token with added capability to be minted by the owner.
-//  * It is used to represent user's shares when providing liquidity to swap contracts.
-//  * @dev Only Swap contracts should initialize and own LPToken contracts.
-//  */
-// contract Option is ERC20 {
-//     address private _owner;
+/**
+ * @title Option
+ * @notice This token is an ERC20 detailed token with added capability to be minted by the owner.
+ * It represents an option contract with specific parameters.
+ * @dev Only authorized contracts should initialize and own Option contracts.
+ */
+contract Option is ERC20Upgradeable {
+    address private _owner;
 
-//     /**
-//      * @notice Initializes this LPToken contract with the given name and symbol
-//      * @dev The caller of this function will become the owner. A Swap contract should call this
-//      * in its initializer function.
-//      * @param name name of this token
-//      * @param symbol symbol of this token
-//      */
-//     function initialize(string memory name, string memory symbol, address owner)
-//         external
-//         initializer
-//         returns (bool)
-//     {
-//         _owner = owner;
-//         __ERC20_init(name, symbol);
-//         return true;
-//     }
+    // Option parameters
+    uint256 public sigma;    // Volatility
+    uint256 public strike;   // Strike price
+    uint256 public tau;      // Time to maturity
+    uint256 public expiration;    // Expiration timestamp
 
-//     /**
-//      * @notice Mints the given amount of LPToken to the recipient.
-//      * @dev only owner can call this mint function
-//      * @param recipient address of account to receive the tokens
-//      * @param amount amount of tokens to mint
-//      */
-//     function mint(address recipient, uint256 amount) external {
-//         require(msg.sender == _owner, "OptionToken: only owner can mint");
-//         require(amount != 0, "OptionToken: cannot mint 0");
-//         _mint(recipient, amount);
-//     }
+    /*///////////////////////////////////////////////////////////////
+                            EVENTS
+    //////////////////////////////////////////////////////////////*/
 
-//     /*///////////////////////////////////////////////////////////////
-//                             BEFORE TRANSFER HOOKS
-//     //////////////////////////////////////////////////////////////*/
+    event OptionInitialized(
+        address indexed owner,
+        uint256 sigma,
+        uint256 strike,
+        uint256 tau,
+        uint256 expiration
+    );
+    
+    event OptionMinted(address indexed recipient, uint256 amount);
+    event OptionBurned(address indexed account, uint256 amount);
 
-//     /**
-//      * @dev Overrides ERC20._beforeTokenTransfer() which get called on every transfers including
-//      * minting and burning. This ensures that Swap.updateUserWithdrawFees are called everytime.
-//      * This assumes the owner is set to a Swap contract's address.
-//      */
-//     function _update(address from, address to, uint256 value) internal virtual override {
-//         super._update(from, to, value);
-//         require(to != address(this), "OptionToken: cannot send to itself");
-//     }
+    /*///////////////////////////////////////////////////////////////
+                            INITIALIZER
+    //////////////////////////////////////////////////////////////*/
 
-// }
+    /**
+     * @notice Initializes this Option contract with the given parameters
+     * @dev The caller of this function will become the owner
+     * @param name name of this token
+     * @param symbol symbol of this token
+     * @param initialOwner address that will own this option contract
+     * @param _sigma volatility parameter
+     * @param _strike strike price of the option
+     * @param _tau time to maturity in seconds
+     * @param _expiration timestamp when option expires
+     */
+    function initialize(
+        string memory name, 
+        string memory symbol, 
+        address initialOwner,        
+        uint256 _sigma,
+        uint256 _strike,
+        uint256 _tau,
+        uint256 _expiration
+    ) external initializer returns (bool) {
+        require(initialOwner != address(0), "Option: owner cannot be zero address");
+        require(_sigma != 0, "Option: volatility cannot be zero");
+        require(_strike != 0, "Option: strike price cannot be zero");
+        require(_tau != 0, "Option: time to maturity cannot be zero");
+        require(_expiration > block.timestamp, "Option: expiration must be in the future");
+        require(_expiration == block.timestamp + _tau, "Option: expiration must match tau");
+
+        _owner = initialOwner;      // Assign to state variable
+        __ERC20_init(name, symbol);
+        
+        sigma = _sigma;
+        strike = _strike;
+        tau = _tau;
+        expiration = _expiration;
+        
+        emit OptionInitialized(initialOwner, _sigma, _strike, _tau, _expiration);
+        return true;
+    }
+
+    // Add owner getter
+    function owner() public view returns (address) {
+        return _owner;
+    }
+
+    /**
+     * @notice Mints the given amount of LPToken to the recipient.
+     * @dev only owner can call this mint function
+     * @param recipient address of account to receive the tokens
+     * @param amount amount of tokens to mint
+     */
+    function mint(address recipient, uint256 amount) external {
+        require(msg.sender == _owner, "Option: only owner can mint");
+        require(amount != 0, "Option: cannot mint 0");
+        _mint(recipient, amount);
+        emit OptionMinted(recipient, amount);
+    }
+
+    /**
+     * @notice Burns the given amount of tokens from the specified account
+     * @dev only owner can call this burn function
+     * @param account address of account to burn tokens from
+     * @param amount amount of tokens to burn
+     */
+    function burn(address account, uint256 amount) external {
+        require(msg.sender == _owner, "Option: only owner can burn");
+        require(amount != 0, "Option: cannot burn 0");
+        _burn(account, amount);
+        emit OptionBurned(account, amount);
+    }
+
+    /*///////////////////////////////////////////////////////////////
+                            BEFORE TRANSFER HOOKS
+    //////////////////////////////////////////////////////////////*/
+
+    /**
+     * @dev Prevents transfers after expiration
+     */
+    function _update(address from, address to, uint256 value) internal virtual override {
+        require(block.timestamp <= expiration, "OptionToken: option has expired");
+        super._update(from, to, value);
+        require(to != address(this), "OptionToken: cannot send to itself");
+    }
+
+    // Retrieves tau at the current timestamp
+    function getCurrentTau() public view returns (uint256) {
+        if (block.timestamp >= expiration) return 0;
+        return expiration - block.timestamp;
+    }
+
+    // Update getParameters to use current tau
+    function getParameters() external view returns (uint256, uint256, uint256, uint256) {
+        return (sigma, strike, getCurrentTau(), expiration);
+    }
+}

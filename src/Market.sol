@@ -21,17 +21,17 @@ import {MarketLib} from "./lib/MarketLib.sol";
 // Define the SwapStorage struct
 struct SwapStorage {
     IPoolManager poolManager;
-    Option option;
-    IERC20[] pooledTokens;
+    Option option;               // All option data in one place
+    IERC20[] pooledTokens;      // Pool-specific data
     uint256[] tokenPrecisionMultipliers;
     uint256[] balances;
-    uint256 sigma;  // Volatility
     uint256 swapFee;
     uint256 adminFee;
     PoolKey poolKey;
 }
 
-// This contract, Portfolio, is a custom hook for Uniswap v4 pools.
+
+// This contract, Market, is a custom hook implementing the RMM-01 model.
 // It extends BaseHook, which provides basic functionality for interacting with the Uniswap v4 core.
 
 contract Market is BaseHook, Ownable {
