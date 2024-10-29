@@ -13,6 +13,7 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
+import {IMarket} from "./interfaces/IMarket.sol";
 
 import {Option} from "./Option.sol";
 import {MathUtils} from "./utils/MathUtils.sol";
@@ -34,7 +35,7 @@ struct SwapStorage {
 // Market is a custom hook implementing the RMM-01 model.
 // It extends BaseHook, which provides basic functionality for interacting with the Uniswap v4 core.
 
-contract Market is BaseHook, Ownable {
+contract Market is BaseHook, IMarket, Ownable {
     using PoolIdLibrary for PoolKey;
 
     // State variable to store the decimal places of the pooled tokens
@@ -189,27 +190,24 @@ contract Market is BaseHook, Ownable {
         IPoolManager.SwapParams calldata params,
         bytes calldata data
     ) external override returns (bytes4, BeforeSwapDelta, uint24) {
-        // Decode additional parameters from data if needed
-        // (uint256 strike, uint256 sigma, uint256 tau, uint256 spotPrice) = abi.decode(data, (uint256, uint256, uint256, uint256));
-
         // Get current pool state
-        (uint256 reserveX, uint256 reserveY) = _getCurrentReserves(key);
+        (uint256 base, uint256 quote) = _getCurrentReserves(key);
 
-        // Calculate the swap using RmmLib
-        (uint256 amountIn, uint256 amountOut) = PortfolioLib.computeSwap(
-            params.zeroForOne,
-            params.amountSpecified,
-            base,
-            quote,
-            strike,
-            volatility,
-            tau,
-            spotPrice
-        );
+        // Create internal params struct with translated naming
+        ExerciseParams memory exerciseParams = ExerciseParams({
+            isCallExercise: !params.zeroForOne,
+            amountSpecified: params.amountSpecified,
+            base: base,
+            quote: quote,
+            strike: strike,
+            volatility: volatility,
+            tau: tau,
+            spotPrice: spotPrice
+        });
 
         // Calculate the delta
-        int256 deltaIn = params.zeroForOne ? -int256(amountIn) : int256(amountIn);
-        int256 deltaOut = params.zeroForOne ? int256(amountOut) : -int256(amountOut);
+        int256 deltaIn = !params.isCallExercise ? -int256(amountIn) : int256(amountIn);
+        int256 deltaOut = !params.isCallExercise ? int256(amountOut) : -int256(amountOut);
 
         BeforeSwapDelta delta = BeforeSwapDelta({
             deltaIn: deltaIn,
@@ -259,7 +257,21 @@ contract Market is BaseHook, Ownable {
         return BaseHook.beforeRemoveLiquidity.selector;
     }
 
-    function getOptionToken() public view returns (Option) {
+    function getOption() public view returns (Option) {
         return swapStorage.option;
     }
+
+    // function _handleExercise(ExerciseParams memory params) internal pure returns (uint256 amountIn, uint256 amountOut) {
+    //     return MarketLib.computeExercise(
+    //         !params.isCallExercise,
+    //         params.amountSpecified,
+    //         params.base,
+    //         params.quote,
+    //         params.strike,
+    //         params.volatility,
+    //         params.tau,
+    //         params.spotPrice
+    //     );
+    // }
 }
+
