@@ -27,11 +27,11 @@ struct SwapStorage {
     uint256[] balances;
     uint256 swapFee;
     uint256 adminFee;
+    uint256 volatility;
     PoolKey poolKey;
 }
 
-
-// This contract, Market, is a custom hook implementing the RMM-01 model.
+// Market is a custom hook implementing the RMM-01 model.
 // It extends BaseHook, which provides basic functionality for interacting with the Uniswap v4 core.
 
 contract Market is BaseHook, Ownable {
@@ -137,16 +137,6 @@ contract Market is BaseHook, Ownable {
         // Initialize swapStorage struct
         swapStorage.poolManager = _poolManager;
         swapStorage.option = option;
-
-        // to do : remove scatch work
-        // LPTokenV2 lpToken = LPTokenV2(Clones.clone(lpTokenTargetAddress));
-        // require(
-        //     lpToken.initialize(_lpTokenName, _lpTokenSymbol, address(this)),
-        //     "could not init lpToken clone"
-        // );
-
-        // Initialize swapStorage struct
-        swapStorage.option = option;
         swapStorage.pooledTokens = _pooledTokens;
         swapStorage.tokenPrecisionMultipliers = precisionMultipliers;
         swapStorage.balances = new uint256[](_pooledTokens.length);
@@ -209,10 +199,10 @@ contract Market is BaseHook, Ownable {
         (uint256 amountIn, uint256 amountOut) = PortfolioLib.computeSwap(
             params.zeroForOne,
             params.amountSpecified,
-            reserveX,
-            reserveY,
+            base,
+            quote,
             strike,
-            sigma,
+            volatility,
             tau,
             spotPrice
         );
