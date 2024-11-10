@@ -1,17 +1,9 @@
-// SPDX-License-Identifier: LicenseRef-Gyro-1.0
-// for information on licensing please see the README in the GitHub repository <https://github.com/gyrostable/core-protocol>.
-// pragma solidity ^0.8.4;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
 
-
-// /// @notice INumoToken is the NUMO token contract
-// interface INumoToken is IERC20Upgradeable {
-
-//     /// @notice Mints `amount` of NUMO token for `account`
-//     function mint(address account, uint256 amount) external;
-
-//     /// @notice Burns `amount` of NUMO token
-//     function burn(uint256 amount) external;
-
-//     /// @notice Burns `amount` of NUMO token from `account`
-//     function burnFrom(address account, uint256 amount) external;
-// }
+interface IOption {
+    function mint(address recipient, uint256 amount) external;
+    function burn(address account, uint256 amount) external;
+    function getParameters() external view returns (uint256, uint256, uint256, uint256);
+    function getCurrentTau() external view returns (uint256);
+}

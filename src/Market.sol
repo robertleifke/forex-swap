@@ -18,6 +18,8 @@ import {IMarket} from "./interfaces/IMarket.sol";
 import {Option} from "./Option.sol";
 import {MathUtils} from "./utils/MathUtils.sol";
 import {MarketLib} from "./lib/MarketLib.sol";
+import {MarketUtils} from "./utils/MarketUtils.sol";
+import {VolatilityUtils} from "./utils/VolatilityUtils.sol";
 
 // Define the SwapStorage struct
 struct SwapStorage {
@@ -44,6 +46,15 @@ contract Market is BaseHook, IMarket, Ownable {
     // State variable to store the SwapStorage struct
     SwapStorage public swapStorage;
 
+    // Add this mapping
+    mapping(address => uint8) public tokenIndexes;
+
+    // Add missing state variables
+    uint256 public strike;
+    uint256 public volatility;
+    uint256 public tau;
+    uint256 public spotPrice;
+
     /**
      * @notice Initializes this pool contract with the given parameters.
      * The owner of option will be this contract - which means
@@ -51,11 +62,10 @@ contract Market is BaseHook, IMarket, Ownable {
      *
      * @param _poolManager reference to Uniswap v4 position manager
      * @param _pooledTokens an array of ERC20s this pool will accept
-     * @param decimals the decimals to use for each pooled token,
-     * eg 8 for WBTC. Cannot be larger than POOL_PRECISION_DECIMALS
+     * @param _decimals the decimals to use for each pooled token
      * @param _optionName the long-form name of the token to be deployed
      * @param _optionSymbol the short symbol for the token to be deployed
-     * @param _volatility the implied volatility of the option
+     * @param _sigma the implied volatility of the option
      * @param _strike the strike price of the option
      * @param _tau the time to maturity of the option
      * @param _fee default swap fee to be initialized with
@@ -91,7 +101,7 @@ contract Market is BaseHook, IMarket, Ownable {
         _decimals[0] = baseDecimal;
         _decimals[1] = quoteDecimal;
 
-        uint256[] memory precisionMultipliers = new uint256[](decimals.length);
+        uint256[] memory precisionMultipliers = new uint256[](_decimals.length);
 
         for (uint8 i = 0; i < _pooledTokens.length; i++) {
             if (i > 0) {
@@ -107,14 +117,14 @@ contract Market is BaseHook, IMarket, Ownable {
                 "The 0 address isn't an ERC-20"
             );
             require(
-                decimals[i] <= MarketUtils.POOL_PRECISION_DECIMALS,
+                _decimals[i] <= MarketUtils.POOL_PRECISION_DECIMALS,
                 "Token decimals exceeds max"
             );
 
             precisionMultipliers[i] =
                  10 **
                     (uint256(MarketUtils.POOL_PRECISION_DECIMALS) -
-                        uint256(decimals[i]));
+                        uint256(_decimals[i]));
 
             tokenIndexes[address(_pooledTokens[i])] = i;
         }
@@ -128,7 +138,15 @@ contract Market is BaseHook, IMarket, Ownable {
         );
 
         // Deploy and initialize an Option contract
-        Option option = new Option();
+        Option option = new Option(
+            _optionName,
+            _optionSymbol,
+            address(this),
+            _sigma,
+            _strike,
+            _tau,
+            block.timestamp + _tau
+        );
 
         require(
             option.initialize(_optionName, _optionSymbol, address(this)),
@@ -141,7 +159,7 @@ contract Market is BaseHook, IMarket, Ownable {
         swapStorage.pooledTokens = _pooledTokens;
         swapStorage.tokenPrecisionMultipliers = precisionMultipliers;
         swapStorage.balances = new uint256[](_pooledTokens.length);
-        swapStorage.volatility = _volatility; 
+        swapStorage.volatility = _sigma; 
         swapStorage.strike = _strike;
         swapStorage.tau = _tau;
         swapStorage.swapFee = _fee;
@@ -154,6 +172,11 @@ contract Market is BaseHook, IMarket, Ownable {
           tickSpacing: 60
         });
 
+        // Store state variables
+        strike = _strike;
+        volatility = _sigma;
+        tau = _tau;
+        spotPrice = 0; // This should be updated elsewhere
     }
 
     // balanced liquidity in the pool, increase the amplifier ( the slippage is minimum) and the curve tries to mimic the Constant Price Model curve
@@ -193,28 +216,26 @@ contract Market is BaseHook, IMarket, Ownable {
         // Get current pool state
         (uint256 base, uint256 quote) = _getCurrentReserves(key);
 
-        // Create internal params struct with translated naming
-        ExerciseParams memory exerciseParams = ExerciseParams({
-            isCallExercise: !params.zeroForOne,
-            amountSpecified: params.amountSpecified,
-            base: base,
-            quote: quote,
-            strike: strike,
-            volatility: volatility,
-            tau: tau,
-            spotPrice: spotPrice
-        });
+        // Calculate amountIn and amountOut using MarketLib
+        (uint256 amountIn, uint256 amountOut) = MarketLib.computeExercise(
+            !params.zeroForOne,
+            uint256(params.amountSpecified < 0 ? -params.amountSpecified : params.amountSpecified),
+            base,
+            quote,
+            strike,
+            volatility,
+            tau,
+            spotPrice
+        );
 
         // Calculate the delta
-        int256 deltaIn = !params.isCallExercise ? -int256(amountIn) : int256(amountIn);
-        int256 deltaOut = !params.isCallExercise ? int256(amountOut) : -int256(amountOut);
+        int256 deltaIn = !params.zeroForOne ? -int256(amountIn) : int256(amountIn);
+        int256 deltaOut = !params.zeroForOne ? int256(amountOut) : -int256(amountOut);
 
         BeforeSwapDelta delta = BeforeSwapDelta({
             deltaIn: deltaIn,
             deltaOut: deltaOut
         });
-
-        // You might want to update internal state here
 
         return (BaseHook.beforeSwap.selector, delta, 0);
     }

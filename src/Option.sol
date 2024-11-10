@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import { ERC20Upgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import "openzeppelin-contracts/contracts/access/Ownable.sol";
 
 /**
  * @title Option
@@ -9,9 +10,7 @@ import { ERC20Upgradeable } from "@openzeppelin/contracts-upgradeable/token/ERC2
  * It represents an option contract with specific parameters.
  * @dev Only authorized contracts should initialize and own Option contracts.
  */
-contract Option is ERC20Upgradeable {
-    address private _owner;
-
+contract Option is ERC20, Ownable {
     // Option parameters
     uint256 public sigma;    // Volatility
     uint256 public strike;   // Strike price
@@ -22,14 +21,6 @@ contract Option is ERC20Upgradeable {
                             EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event OptionInitialized(
-        address indexed owner,
-        uint256 sigma,
-        uint256 strike,
-        uint256 tau,
-        uint256 expiration
-    );
-    
     event OptionMinted(address indexed recipient, uint256 amount);
     event OptionBurned(address indexed account, uint256 amount);
 
@@ -48,37 +39,26 @@ contract Option is ERC20Upgradeable {
      * @param _tau time to maturity in seconds
      * @param _expiration timestamp when option expires
      */
-    function initialize(
-        string memory name, 
-        string memory symbol, 
-        address initialOwner,        
+    constructor(
+        string memory name,
+        string memory symbol,
+        address initialOwner,
         uint256 _sigma,
         uint256 _strike,
         uint256 _tau,
         uint256 _expiration
-    ) external initializer returns (bool) {
+    ) ERC20(name, symbol) Ownable(initialOwner) {
         require(initialOwner != address(0), "Option: owner cannot be zero address");
         require(_sigma != 0, "Option: volatility cannot be zero");
         require(_strike != 0, "Option: strike price cannot be zero");
         require(_tau != 0, "Option: time to maturity cannot be zero");
         require(_expiration > block.timestamp, "Option: expiration must be in the future");
         require(_expiration == block.timestamp + _tau, "Option: expiration must match tau");
-
-        _owner = initialOwner;      // Assign to state variable
-        __ERC20_init(name, symbol);
         
         sigma = _sigma;
         strike = _strike;
         tau = _tau;
         expiration = _expiration;
-        
-        emit OptionInitialized(initialOwner, _sigma, _strike, _tau, _expiration);
-        return true;
-    }
-
-    // Add owner getter
-    function owner() public view returns (address) {
-        return _owner;
     }
 
     /**
@@ -87,8 +67,7 @@ contract Option is ERC20Upgradeable {
      * @param recipient address of account to receive the tokens
      * @param amount amount of tokens to mint
      */
-    function mint(address recipient, uint256 amount) external {
-        require(msg.sender == _owner, "Option: only owner can mint");
+    function mint(address recipient, uint256 amount) external onlyOwner {
         require(amount != 0, "Option: cannot mint 0");
         _mint(recipient, amount);
         emit OptionMinted(recipient, amount);
@@ -100,8 +79,7 @@ contract Option is ERC20Upgradeable {
      * @param account address of account to burn tokens from
      * @param amount amount of tokens to burn
      */
-    function burn(address account, uint256 amount) external {
-        require(msg.sender == _owner, "Option: only owner can burn");
+    function burn(address account, uint256 amount) external onlyOwner {
         require(amount != 0, "Option: cannot burn 0");
         _burn(account, amount);
         emit OptionBurned(account, amount);

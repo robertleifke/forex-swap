@@ -7,7 +7,7 @@ pragma solidity ^0.8.24;
 ///      Source: https://github.com/primitivefinance/rmm/blob/main/contracts/libraries/RMMLib.sol
 
 import {Gaussian} from "solstat/Gaussian.sol";
-import {FixedPointMathLib} from "lib/solmate/src/utils/FixedPointMathLib.sol";
+import {FixedPointMathLib} from "lib/solstat/lib/solmate/src/utils/FixedPointMathLib.sol";
 import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
 import {ToUintOverflow, ToIntOverflow} from "./Errors.sol";
 
