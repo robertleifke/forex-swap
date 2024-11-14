@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-/// @title PortfolioLib
-/// @notice This library contains functions for portfolio management and calculations.
+/// @title Pricing Library
+/// @notice This library contains functions for options pricing and calculations.
 /// @dev All of the functions in this library are taken directly from RMMLib authored by Primitive.
 ///      Source: https://github.com/primitivefinance/rmm/blob/main/contracts/libraries/RMMLib.sol
 
@@ -13,6 +13,7 @@ import {ToUintOverflow, ToIntOverflow} from "./Errors.sol";
 
 using FixedPointMathLib for uint256;
 using FixedPointMathLib for int256;
+
 
 struct PoolPreCompute {
     uint256 reserveInAsset;

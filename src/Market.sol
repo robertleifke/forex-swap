@@ -17,9 +17,8 @@ import {IMarket} from "./interfaces/IMarket.sol";
 
 import {Option} from "./Option.sol";
 import {MathUtils} from "./utils/MathUtils.sol";
-import {MarketLib} from "./lib/MarketLib.sol";
 import {MarketUtils} from "./utils/MarketUtils.sol";
-import {VolatilityUtils} from "./utils/VolatilityUtils.sol";
+import {Pricing} from "./lib/Pricing.sol";
 
 // Define the SwapStorage struct
 struct SwapStorage {
@@ -130,7 +129,6 @@ contract Market is BaseHook, IMarket, Ownable {
         }
 
         // Check _a, _fee, _adminFee, _withdrawFee parameters
-        require(_sigma < VolatilityUtils.MAX_VOLATILITY, "_sigma exceeds maximum");
         require(_fee < MarketUtils.MAX_SWAP_FEE, "_fee exceeds maximum");
         require(
             _adminFee < MarketUtils.MAX_ADMIN_FEE,
@@ -216,8 +214,8 @@ contract Market is BaseHook, IMarket, Ownable {
         // Get current pool state
         (uint256 base, uint256 quote) = _getCurrentReserves(key);
 
-        // Calculate amountIn and amountOut using MarketLib
-        (uint256 amountIn, uint256 amountOut) = MarketLib.computeExercise(
+        // Calculate amountIn and amountOut using the Pricing library
+        (uint256 amountIn, uint256 amountOut) = Pricing.computeExercise(
             !params.zeroForOne,
             uint256(params.amountSpecified < 0 ? -params.amountSpecified : params.amountSpecified),
             base,
