@@ -18,7 +18,7 @@ import {IMarket} from "./interfaces/IMarket.sol";
 import {Option} from "./Option.sol";
 import {MathUtils} from "./utils/MathUtils.sol";
 import {MarketUtils} from "./utils/MarketUtils.sol";
-import {Pricing} from "./lib/Pricing.sol";
+import {computeSpotPrice} from "./Pricing.sol";
 
 // Define the SwapStorage struct
 struct SwapStorage {

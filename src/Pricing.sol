@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-/// @title Pricing Library
+/// @title Functions for options pricing and calculations.
 /// @notice This library contains functions for options pricing and calculations.
 /// @dev All of the functions in this library are taken directly from RMMLib authored by Primitive.
 ///      Source: https://github.com/primitivefinance/rmm/blob/main/contracts/libraries/RMMLib.sol
@@ -9,7 +9,7 @@ pragma solidity ^0.8.24;
 import {Gaussian} from "solstat/Gaussian.sol";
 import {FixedPointMathLib} from "lib/solstat/lib/solmate/src/utils/FixedPointMathLib.sol";
 import {ERC20} from "lib/solmate/src/tokens/ERC20.sol";
-import {ToUintOverflow, ToIntOverflow} from "./Errors.sol";
+import {ToUintOverflow, ToIntOverflow} from "./lib/Errors.sol";
 
 using FixedPointMathLib for uint256;
 using FixedPointMathLib for int256;
@@ -139,7 +139,7 @@ function computeLGivenX(uint256 base, uint256 S, uint256 strike_, uint256 sigma_
     int256 d1 = 1 ether * (lnSDivK + int256(halfSigmaSquaredTau)) / int256(sigmaSqrtTau);
     uint256 cdf = uint256(Gaussian.cdf(d1));
 
-    return base * 1 ether / toUint(1 ether - cdf);
+    return base * 1 ether / (1 ether - cdf);
 }
 
 /// @dev x is independent variable, y and L are dependent variables.
