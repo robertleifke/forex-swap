@@ -4,7 +4,7 @@
 [![npm version](https://img.shields.io/npm/v/@uniswap/v3-core/latest.svg)](https://www.npmjs.com/package/@numotrade/numo/v/latest)
 
 <p align="center">
-  <img src="./image/puffin_2.png" alt="Puffin Logo" width="200">
+  <img src="./image/puffin_3.png" alt="Puffin Logo" width="800">
 </p>
 
 ### Covered calls on any ERC-20.
