@@ -15,7 +15,7 @@ The smart contract suite is a Uniswap V4 hook and is inspired by @primitivefinan
 
 > ⚠️ **WARNING:** This code has not yet been audited. Use at your own risk.
 
-Liquidity providers on Numo earn sustainable yield from selling call options. Unlike in traditional options markets, **sellers** earn a premium perpetually. These premiums are paid by buyers who enjoy the *right but not obligation* to exercise the call option if it is in the money. To optimize the premiums earned, a batch auction can be implemented to match buyers and sellers. 
+Liquidity providers earn sustainable yield from selling call options. Unlike in traditional options markets, **sellers** earn a premium perpetually. These premiums are paid by buyers who enjoy the *right but not obligation* to exercise the call option if it is in the money. To optimize the premiums earned, a batch auction can be implemented to match buyers and sellers. 
 
 Puffin deploys a `market` instance for each pair. Each `market` can handle any two arbitrary ERC-20 tokens.
 
