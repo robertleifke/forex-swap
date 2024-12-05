@@ -7,15 +7,15 @@
   <img src="./image/Puffin_3.png" alt="Puffin Logo" width="800">
 </p>
 
-### FX collars on EUROC/USDC.
+### FX collars on EUR-USD
 
-The smart contract suite is a Uniswap V4 hook and is inspired by @primitivefinance's open source [implementation](https://github.com/primitivefinance/rmm) and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first proved any option strategy can be constructed using AMMs.
+The smart contract suite is a Uniswap V4 hook and is inspired by Primitive's open source [RMM](https://github.com/primitivefinance/rmm) and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first proved any option strategy can be constructed using AMMs.
 
 ## Hedgers
 
 > ⚠️ **WARNING:** This code has not yet been audited. Use at your own risk.
 
-Hedgers buy a FX collar by providing liquidity in EUROC/USDC on Puffin. Unlike in traditional options markets, **sellers** earn a premium perpetually. These premiums are paid by buyers who enjoy the *right but not obligation* to exercise the call option if it is in the money. To optimize the premiums earned, a batch auction can be implemented to match buyers and sellers. 
+Hedgers buy a FX collar by providing a desired notional amount of `EUROC` and `USDC` into Puffin as well as set the cap and the floor for which the exchange rate should stay. Lastly hedgers can opt for an expiry to meet their specific needs (e.g. geopolitical event). Unlike traditional FX collars, there is no need for a direct counterparty. Instead the expected returns of a FX collar are provided from fees on spot volume for the `EUROC/USDC` pair on Uniswap. You can think of fees on swaps as the premium paid by the option buyers who enjoy the *right but not obligation* to exercise the provided option if it is in the money. To keep the rebalancing fees low, a batch auction can be implemented to increase competition between arbitrageurs who rebalance the FX collar for the hedger. 
 
 Puffin in theory deploy a `market` instance for each pair. Each `market` can handle any two arbitrary ERC-20 tokens.
 
