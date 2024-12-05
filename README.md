@@ -7,17 +7,17 @@
   <img src="./image/Puffin_3.png" alt="Puffin Logo" width="800">
 </p>
 
-### Covered calls on any ERC-20.
+### FX collars on EUROC/USDC.
 
-The smart contract suite is a Uniswap V4 hook and is inspired by @primitivefinance's open source [implementation](https://github.com/primitivefinance/rmm) of an oracle-free covered call and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first proved a covered call strategy can be constructed using CFMMs.
+The smart contract suite is a Uniswap V4 hook and is inspired by @primitivefinance's open source [implementation](https://github.com/primitivefinance/rmm) and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first proved any option strategy can be constructed using AMMs.
 
-## Liquidity Providers
+## Hedgers
 
 > ⚠️ **WARNING:** This code has not yet been audited. Use at your own risk.
 
-Liquidity providers earn sustainable yield from selling call options. Unlike in traditional options markets, **sellers** earn a premium perpetually. These premiums are paid by buyers who enjoy the *right but not obligation* to exercise the call option if it is in the money. To optimize the premiums earned, a batch auction can be implemented to match buyers and sellers. 
+Hedgers buy a FX collar by providing liquidity in EUROC/USDC on Puffin. Unlike in traditional options markets, **sellers** earn a premium perpetually. These premiums are paid by buyers who enjoy the *right but not obligation* to exercise the call option if it is in the money. To optimize the premiums earned, a batch auction can be implemented to match buyers and sellers. 
 
-Puffin deploys a `market` instance for each pair. Each `market` can handle any two arbitrary ERC-20 tokens.
+Puffin in theory deploy a `market` instance for each pair. Each `market` can handle any two arbitrary ERC-20 tokens.
 
 ## Set up
 
