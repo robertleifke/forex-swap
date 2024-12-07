@@ -7,7 +7,7 @@
   <img src="./image/Puffin_3.png" alt="Puffin Logo" width="800">
 </p>
 
-The smart contract suite is a Uniswap V4 hook and is inspired by Primitive's open source [RMM](https://github.com/primitivefinance/rmm) and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first proved any option strategy can be constructed using AMMs.
+The smart contract suite is a Uniswap V4 hook and is inspired by Primitive's open source [RMM](https://github.com/primitivefinance/rmm) and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first proved the replicated portfolio of any option strategy can be constructed using AMMs.
 
 ### FX collars
 
