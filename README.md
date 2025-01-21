@@ -39,8 +39,10 @@ forge install
 git submodule update --init --recursive
 ```
 
-## Deployment
+## Deployments
 
-**TODO:** Add Deployed Addresses
+| Network  | Factory Address                                       |  
+| -------- | ----------------------------------------------------- | 
+| Unichain Sepolia     | [0x82360b9a2076a09ea8abe2b3e11aed89de3a02d1](https://explorer.celo.org/mainnet/token/0x82360b9a2076a09ea8abe2b3e11aed89de3a02d1 ) |
 
 ---
