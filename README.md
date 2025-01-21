@@ -3,6 +3,12 @@
 [![Fuzz Testing](https://github.com/Uniswap/uniswap-v3-core/actions/workflows/fuzz-testing.yml/badge.svg)](https://github.com/numotrade/numo/actions/workflows/fuzz-testing.yml)
 [![npm version](https://img.shields.io/npm/v/@uniswap/v3-core/latest.svg)](https://www.npmjs.com/package/@numotrade/numo/v/latest)
 
+<div align="center">
+  <br />
+  <a href="https://optimism.io"><img alt="Numo" src="./image/numo_readme.png" width=600></a>
+  <br />
+</div>
+
 > ⚠️ **WARNING:** This code has not yet been audited. Use at your own risk.
 
 Cash-settled forwards on FX stablecoins (e.g. EUROC-USDC pair) so any business can hedge their currency risk.
