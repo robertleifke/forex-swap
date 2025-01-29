@@ -13,12 +13,11 @@ import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
 import {Currency} from "v4-core/src/types/Currency.sol";
 import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
-import {IMarket} from "./interfaces/IMarket.sol";
+import {INumo} from "./interfaces/INumo.sol";
 
-import {Option} from "./Option.sol";
 import {MathUtils} from "./utils/MathUtils.sol";
-import {MarketUtils} from "./utils/MarketUtils.sol";
-import {computeSpotPrice} from "./Pricing.sol";
+import {NumoUtils} from "./utils/NumoUtils.sol";
+import {computeSpotPrice} from "./LogNormal.sol";
 
 // Define the SwapStorage struct
 struct SwapStorage {
@@ -33,10 +32,12 @@ struct SwapStorage {
     PoolKey poolKey;
 }
 
-// Market is a custom hook implementing the RMM-01 model.
-// It extends BaseHook, which provides basic functionality for interacting with the Uniswap v4 core.
+/// @title Numo 
+/// @author @robertleifke
+/// @notice Log-Normal Market Maker
+/// @dev Extends BaseHook
 
-contract Numo is BaseHook, IMarket, Ownable {
+contract Numo is BaseHook, INumo, Ownable {
     using PoolIdLibrary for PoolKey;
 
     // State variable to store the decimal places of the pooled tokens
@@ -116,22 +117,22 @@ contract Numo is BaseHook, IMarket, Ownable {
                 "The 0 address isn't an ERC-20"
             );
             require(
-                _decimals[i] <= MarketUtils.POOL_PRECISION_DECIMALS,
+                _decimals[i] <= NumoUtils.POOL_PRECISION_DECIMALS,
                 "Token decimals exceeds max"
             );
 
             precisionMultipliers[i] =
                  10 **
-                    (uint256(MarketUtils.POOL_PRECISION_DECIMALS) -
+                    (uint256(NumoUtils.POOL_PRECISION_DECIMALS) -
                         uint256(_decimals[i]));
 
             tokenIndexes[address(_pooledTokens[i])] = i;
         }
 
         // Check _a, _fee, _adminFee, _withdrawFee parameters
-        require(_fee < MarketUtils.MAX_SWAP_FEE, "_fee exceeds maximum");
+        require(_fee < NumoUtils.MAX_SWAP_FEE, "_fee exceeds maximum");
         require(
-            _adminFee < MarketUtils.MAX_ADMIN_FEE,
+            _adminFee < NumoUtils.MAX_ADMIN_FEE,
             "_adminFee exceeds maximum"
         );
 
