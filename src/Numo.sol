@@ -36,7 +36,7 @@ struct SwapStorage {
 // Market is a custom hook implementing the RMM-01 model.
 // It extends BaseHook, which provides basic functionality for interacting with the Uniswap v4 core.
 
-contract Market is BaseHook, IMarket, Ownable {
+contract Numo is BaseHook, IMarket, Ownable {
     using PoolIdLibrary for PoolKey;
 
     // State variable to store the decimal places of the pooled tokens
