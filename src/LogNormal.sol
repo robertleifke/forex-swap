@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.24;
 
-/// @title Functions for options pricing and calculations.
+/// @title Functions for Log-Normal Market Maker
 /// @notice This library contains functions for options pricing and calculations.
 /// @dev All of the functions in this library are taken directly from RMMLib authored by Primitive.
 ///      Source: https://github.com/primitivefinance/rmm/blob/main/contracts/libraries/RMMLib.sol
