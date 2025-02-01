@@ -11,7 +11,7 @@
   <br />
 </div>
 
-#### A log-normal automated market maker for efficient swapping of on-chain FX. 
+#### Automated market maker for efficient swapping of on-chain FX. 
 
 ## Overview
 The most intresting application built on top of Numo's log-normal curve are cash settled forwards for currency hedging. Under the hood, each forward would be repersented as a liquidity provider position in Numo, a [Uniswap V4 hook](https://github.com/Uniswap/v4-core). The synthetic `forward` uses arbitrageurs to rebalance the position so that the the desired payoff of a cash-settled forward is always maintained. This process is known as *replicating a portfolio with options* and typical done by sophicated market maker to hedge illiquid FX pairs.  Similar to traditional forwards, users can set a pair of `strikes` and an `expiry` to match their needs.  
