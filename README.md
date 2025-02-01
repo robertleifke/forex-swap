@@ -27,10 +27,39 @@ The most intresting application built on top of Numo's log-normal curve are cash
 
 The smart contract suite is inspired by Primitive's open source [RMM](https://github.com/primitivefinance/rmm) and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first proved the replicated portfolio of any option strategy can be constructed using AMMs.
 
-## Usage
+
+## Setup
+
+Requires forge to be installed already.
 
 ```
 forge install
+```
+
+## Testing
+
+```
+forge test -vvv
+```
+
+## Coverage
+
+```
+forge coverage --report lcov
+cmd + shift + p -> Coverage Gutters: Display Coverage
+```
+
+## Gas benchmarks
+
+### View gas usage
+
+```
+forge snapshot --gas-report
+```
+
+### Compare gas usage
+```
+forge snapshot --diff
 ```
 
 #### Update dependencies
