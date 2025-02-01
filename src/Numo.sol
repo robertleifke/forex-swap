@@ -1,297 +1,202 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: BUSL-1.1
 pragma solidity ^0.8.24;
 
-import {BaseHook} from "v4-periphery/src/base/hooks/BaseHook.sol";
-import {Hooks} from "v4-core/src/libraries/Hooks.sol";
-import {ERC20} from "solmate/src/tokens/ERC20.sol";
-import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {PoolId, PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
-import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
-import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "v4-core/src/types/BeforeSwapDelta.sol";
-import {IERC20} from "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
-import {Ownable} from "openzeppelin-contracts/contracts/access/Ownable.sol";
-import {Currency} from "v4-core/src/types/Currency.sol";
-import {IHooks} from "v4-core/src/interfaces/IHooks.sol";
-import {INumo} from "./interfaces/INumo.sol";
+import { BaseHook } from "@v4-periphery/base/hooks/BaseHook.sol";
+import { IPoolManager } from "@v4-core/interfaces/IPoolManager.sol";
+import { Hooks } from "@v4-core/libraries/Hooks.sol";
+import { PoolKey } from "@v4-core/types/PoolKey.sol";
+import { PoolId, PoolIdLibrary } from "@v4-core/types/PoolId.sol";
+import { BeforeSwapDelta, BeforeSwapDeltaLibrary } from "@v4-core/types/BeforeSwapDelta.sol";
+import { BalanceDelta, add, BalanceDeltaLibrary } from "@v4-core/types/BalanceDelta.sol";
+import { StateLibrary } from "@v4-core/libraries/StateLibrary.sol";
+import { TickMath } from "@v4-core/libraries/TickMath.sol";
+import { LiquidityAmounts } from "@v4-core-test/utils/LiquidityAmounts.sol";
+import { SqrtPriceMath } from "@v4-core/libraries/SqrtPriceMath.sol";
+import { FullMath } from "@v4-core/libraries/FullMath.sol";
+import { FixedPoint96 } from "@v4-core/libraries/FixedPoint96.sol";
+import { TransientStateLibrary } from "@v4-core/libraries/TransientStateLibrary.sol";
+import { FixedPointMathLib } from "@solady/utils/FixedPointMathLib.sol";
+import { ProtocolFeeLibrary } from "@v4-core/libraries/ProtocolFeeLibrary.sol";
+import { SwapMath } from "@v4-core/libraries/SwapMath.sol";
+import { SafeCastLib } from "@solady/utils/SafeCastLib.sol";
+import { Currency } from "@v4-core/types/Currency.sol";
 
-import {MathUtils} from "./utils/MathUtils.sol";
-import {NumoUtils} from "./utils/NumoUtils.sol";
-import {computeSpotPrice} from "./LogNormal.sol";
-
-// Define the SwapStorage struct
-struct SwapStorage {
-    IPoolManager poolManager;
-    Option option;               // All option data in one place
-    IERC20[] pooledTokens;      // Pool-specific data
-    uint256[] tokenPrecisionMultipliers;
-    uint256[] balances;
-    uint256 swapFee;
-    uint256 adminFee;
-    uint256 volatility;
-    PoolKey poolKey;
+struct PortfolioData {
+    int24 strikeFloor;
+    int24 strikeCeiling;
+    uint128 liquidity;
 }
 
-/// @title Numo 
-/// @author @robertleifke
-/// @notice Log-Normal Market Maker
-/// @dev Extends BaseHook
+struct State {
+    uint40 lastExpiry;
+    int256 tickAccumulator;
+    uint256 totalTokensSold;
+    uint256 totalProceeds;
+    uint256 totalTokensSoldLastEpoch;
+    BalanceDelta feesAccrued;
+}
 
-contract Numo is BaseHook, INumo, Ownable {
+struct Position {
+    int24 strikeFloor;
+    int24 strikeCeiling;
+    uint128 liquidity;
+    uint8 salt;
+}
+
+error InvalidGamma();
+
+/// @notice Thrown when the time range is invalid (likely start is after end)
+error InvalidTimeRange();
+
+/// @notice Thrown when an attempt is made to add liquidity to the pool
+error CannotAddLiquidity();
+
+/// @notice Thrown when an attempt is made to swap before the start time
+error CannotSwapBeforeStartTime();
+
+error SwapBelowRange();
+
+/// @notice Thrown when start time is before the current block.timestamp
+error InvalidStartTime();
+
+error InvalidTickRange();
+error InvalidTickSpacing();
+error InvalidEpochLength();
+error InvalidProceedLimits();
+error InvalidNumPDSlugs();
+error InvalidSwapAfterMaturitySufficientProceeds();
+error InvalidSwapAfterMaturityInsufficientProceeds();
+error MaximumProceedsReached();
+error SenderNotPoolManager();
+error CannotMigrate();
+error AlreadyInitialized();
+error SenderNotInitializer();
+error CannotDonate();
+
+event Rebalance(int24 currentTick, int24 tickLower, int24 tickUpper, uint256 epoch);
+
+event Swap(int24 currentTick, uint256 totalProceeds, uint256 totalTokensSold);
+
+event EarlyExit(uint256 epoch);
+
+event InsufficientProceeds();
+
+uint256 constant MAX_SWAP_FEE = SwapMath.MAX_SWAP_FEE;
+uint256 constant WAD = 1e18;
+int256 constant I_WAD = 1e18;
+int24 constant MAX_TICK_SPACING = 30;
+uint256 constant MAX_PRICE_DISCOVERY_SLUGS = 10;
+uint256 constant NUM_DEFAULT_SLUGS = 3;
+
+contract Numo is BaseHook {
     using PoolIdLibrary for PoolKey;
+    using StateLibrary for IPoolManager;
+    using TransientStateLibrary for IPoolManager;
+    using BalanceDeltaLibrary for BalanceDelta;
+    using ProtocolFeeLibrary for *;
+    using SafeCastLib for uint128;
+    using SafeCastLib for int256;
+    using SafeCastLib for uint256;
 
-    // State variable to store the decimal places of the pooled tokens
-    uint8[] public decimals;
+    bool public insufficientProceeds; // triggers if the pool matures and minimumProceeds is not met
+    bool public earlyExit; // triggers if the pool ever reaches or exceeds maximumProceeds
 
-    // State variable to store the SwapStorage struct
-    SwapStorage public swapStorage;
+    
+    bool public isInitialized;
 
-    // Add this mapping
-    mapping(address => uint8) public tokenIndexes;
+    PoolKey public poolKey;
+    address public initializer;
 
-    // Add missing state variables
-    uint256 public strike;
-    uint256 public volatility;
-    uint256 public tau;
-    uint256 public spotPrice;
+    uint256 internal numTokensToSell; // total amount of tokens to be sold
+    uint256 internal minimumProceeds; // minimum proceeds required to avoid refund phase
+    uint256 internal maximumProceeds; // proceeds amount that will trigger early exit condition
+    uint256 internal startingTime; // sale start time
+    uint256 internal endingTime; // sale end time
+    int24 internal startingTick; // dutch auction starting tick
+    int24 internal endingTick; // dutch auction ending tick
+    uint256 internal epochLength; // length of each epoch (seconds)
+    int24 internal gamma; // 1.0001 ** (gamma), represents the maximum tick change for the entire bonding curve
+    bool internal isToken0; // whether token0 is the token being sold (true) or token1 (false)
+    uint256 internal numPDSlugs; // number of price discovery slugs
 
-    /**
-     * @notice Initializes this pool contract with the given parameters.
-     * The owner of option will be this contract - which means
-     * only this contract is allowed to mint/burn tokens.
-     *
-     * @param _poolManager reference to Uniswap v4 position manager
-     * @param _pooledTokens an array of ERC20s this pool will accept
-     * @param _decimals the decimals to use for each pooled token
-     * @param _optionName the long-form name of the token to be deployed
-     * @param _optionSymbol the short symbol for the token to be deployed
-     * @param _sigma the implied volatility of the option
-     * @param _strike the strike price of the option
-     * @param _tau the time to maturity of the option
-     * @param _fee default swap fee to be initialized with
-     * @param _adminFee default adminFee to be initialized with
-     */    
+    uint256 internal totalEpochs; // total number of epochs
+    uint256 internal normalizedEpochDelta; // normalized delta between two epochs
+    int24 internal upperSlugRange; // range of the upper slug
+
+    State public state;
+    mapping(bytes32 salt => Position position) public positions;
+
+    receive() external payable {
+        if (msg.sender != address(poolManager)) revert SenderNotPoolManager();
+    }
+
     constructor(
         IPoolManager _poolManager,
-        IERC20[] memory _pooledTokens,
-        uint8[] memory _decimals,
-        string memory _optionName,
-        string memory _optionSymbol,
-        uint256 _sigma,
-        uint256 _strike,
-        uint256 _tau,
-        uint256 _fee,
-        uint256 _adminFee
-    ) BaseHook(_poolManager) Ownable(msg.sender) payable {
-        require(_pooledTokens.length == 2, "_pooledTokens.length == 2");
-
-        require(
-            _pooledTokens.length == _decimals.length,
-            "_pooledTokens decimals mismatch"
-        );
-
-        (address base, address quote, uint8 baseDecimal, uint8 quoteDecimal)
-            = address(_pooledTokens[0]) < address(_pooledTokens[1]) ?
-                (address(_pooledTokens[0]), address(_pooledTokens[1]), _decimals[0], _decimals[1])
-                : (address(_pooledTokens[1]), address(_pooledTokens[0]), _decimals[1], _decimals[0]);
-
-        _pooledTokens[0] = IERC20(base);
-        _pooledTokens[1] = IERC20(quote);
-
-        _decimals[0] = baseDecimal;
-        _decimals[1] = quoteDecimal;
-
-        uint256[] memory precisionMultipliers = new uint256[](_decimals.length);
-
-        for (uint8 i = 0; i < _pooledTokens.length; i++) {
-            if (i > 0) {
-                // Check if index is already used. Check if 0th element is a duplicate.
-                require(
-                    tokenIndexes[address(_pooledTokens[i])] == 0 &&
-                        _pooledTokens[0] != _pooledTokens[i],
-                    "Duplicate tokens"
-                );
-            }
-            require(
-                address(_pooledTokens[i]) != address(0),
-                "The 0 address isn't an ERC-20"
-            );
-            require(
-                _decimals[i] <= NumoUtils.POOL_PRECISION_DECIMALS,
-                "Token decimals exceeds max"
-            );
-
-            precisionMultipliers[i] =
-                 10 **
-                    (uint256(NumoUtils.POOL_PRECISION_DECIMALS) -
-                        uint256(_decimals[i]));
-
-            tokenIndexes[address(_pooledTokens[i])] = i;
-        }
-
-        // Check _a, _fee, _adminFee, _withdrawFee parameters
-        require(_fee < NumoUtils.MAX_SWAP_FEE, "_fee exceeds maximum");
-        require(
-            _adminFee < NumoUtils.MAX_ADMIN_FEE,
-            "_adminFee exceeds maximum"
-        );
-
-        // Deploy and initialize an Option contract
-        Option option = new Option(
-            _optionName,
-            _optionSymbol,
-            address(this),
-            _sigma,
-            _strike,
-            _tau,
-            block.timestamp + _tau
-        );
-
-        require(
-            option.initialize(_optionName, _optionSymbol, address(this)),
-            "could not init option clone"
-        );
-
-        // Initialize swapStorage struct
-        swapStorage.poolManager = _poolManager;
-        swapStorage.option = option;
-        swapStorage.pooledTokens = _pooledTokens;
-        swapStorage.tokenPrecisionMultipliers = precisionMultipliers;
-        swapStorage.balances = new uint256[](_pooledTokens.length);
-        swapStorage.volatility = _sigma; 
-        swapStorage.strike = _strike;
-        swapStorage.tau = _tau;
-        swapStorage.swapFee = _fee;
-        swapStorage.adminFee = _adminFee;
-        swapStorage.poolKey = PoolKey({
-          currency0: Currency.wrap(base),
-          currency1: Currency.wrap(quote),
-          fee: 3000,
-          hooks: IHooks(address(this)),
-          tickSpacing: 60
-        });
-
-        // Store state variables
-        strike = _strike;
-        volatility = _sigma;
-        tau = _tau;
-        spotPrice = 0; // This should be updated elsewhere
+        uint256 _numTokensToSell,
+        uint256 _minimumProceeds,
+        uint256 _maximumProceeds,
+        uint256 _startingTime,
+        uint256 _endingTime,
+        int24 _startingTick,
+        int24 _endingTick
+    ) {
+        poolManager = _poolManager;
     }
-
-    // balanced liquidity in the pool, increase the amplifier ( the slippage is minimum) and the curve tries to mimic the Constant Price Model curve
-    // but when the liquidity is imbalanced, decrease the amplifier  the slippage approaches infinity and the curve tries to mimic the Uniswap Constant Product Curve
-    function getHookPermissions()
-        public
-        pure
-        override
-        returns (Hooks.Permissions memory)
-    {
-        return
-            Hooks.Permissions({
-                beforeInitialize: false,
-                afterInitialize: false,
-                beforeAddLiquidity: true, // Don't allow normally adding liquidity 
-                afterAddLiquidity: false,
-                beforeRemoveLiquidity: false,
-                afterRemoveLiquidity: false,
-                beforeSwap: true, // Override how swaps are done
-                afterSwap: false,
-                beforeDonate: false,
-                afterDonate: false,
-                beforeSwapReturnDelta: true, // Allow beforeSwap to return a custom delta
-                afterSwapReturnDelta: false,
-                afterAddLiquidityReturnDelta: false,
-                afterRemoveLiquidityReturnDelta: false
-            });
-    }
-
-    // Hook function called before a swap occurs
     function beforeSwap(
         address sender,
         PoolKey calldata key,
         IPoolManager.SwapParams calldata params,
-        bytes calldata data
-    ) external override returns (bytes4, BeforeSwapDelta, uint24) {
-        // Get current pool state
-        (uint256 base, uint256 quote) = _getCurrentReserves(key);
+        bytes calldata hookData
+    ) external override returns (bytes4) {
+        require(msg.sender == address(poolManager), "Unauthorized");
 
-        // Calculate amountIn and amountOut using the Pricing library
-        (uint256 amountIn, uint256 amountOut) = Pricing.computeExercise(
-            !params.zeroForOne,
-            uint256(params.amountSpecified < 0 ? -params.amountSpecified : params.amountSpecified),
-            base,
-            quote,
-            strike,
-            volatility,
-            tau,
-            spotPrice
+        // Extract log-normal parameters from hookData
+        (uint256 volatility, uint256 drift) = abi.decode(hookData, (uint256, uint256));
+
+        // Compute log-normal price adjustment
+        int256 priceShift = computeLogNormalPrice(params.amountSpecified, volatility, drift);
+
+        // Apply price shift to the swap parameters (modifies sqrtPriceX96)
+        params.sqrtPriceX96 = uint160(uint256(int256(params.sqrtPriceX96) + priceShift));
+
+        return IUniswapV4Hook.beforeSwap.selector;
+    }
+
+    function computeLogNormalPrice(
+        int256 amountSpecified,
+        uint256 volatility,
+        uint256 drift
+    ) internal pure returns (int256) {
+        // Log-normal price adjustment using the Black-Scholes-like model
+        // Formula: P' = P * exp(volatility * sqrt(t) + drift * t)
+        uint256 t = 1 days; // Assume daily rebalancing for now
+
+        int256 logPriceChange = int256(
+            (volatility * sqrt(t) / 1e18) + (drift * t / 1e18)
         );
 
-        // Calculate the delta
-        int256 deltaIn = !params.zeroForOne ? -int256(amountIn) : int256(amountIn);
-        int256 deltaOut = !params.zeroForOne ? int256(amountOut) : -int256(amountOut);
-
-        BeforeSwapDelta delta = BeforeSwapDelta({
-            deltaIn: deltaIn,
-            deltaOut: deltaOut
-        });
-
-        return (BaseHook.beforeSwap.selector, delta, 0);
+        return logPriceChange;
     }
 
-    // Helper function to get current reserves
-    function _getCurrentReserves(PoolKey calldata key) internal view returns (uint256, uint256) {
-        // Implement logic to fetch current reserves from the pool
-        // This might involve calling the pool manager or reading from storage
+    function sqrt(uint256 x) internal pure returns (uint256) {
+        return x**(1/2);
     }
 
-    // Hook function called after a swap occurs
-    // Currently, it doesn't perform any actions post-swap
-    function afterSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata, BalanceDelta, bytes calldata)
-        external
-        override
-        returns (bytes4, int128)
-    {
-        return (BaseHook.afterSwap.selector, 0);
-    }
-
-    // Hook function called before liquidity is added to the pool
-    // Currently, it doesn't modify the liquidity addition process
-    function beforeAddLiquidity(
-        address,
+    function beforeModifyPosition(
+        address sender,
         PoolKey calldata key,
-        IPoolManager.ModifyLiquidityParams calldata,
-        bytes calldata
+        IPoolManager.ModifyPositionParams calldata params,
+        bytes calldata hookData
     ) external override returns (bytes4) {
-        return BaseHook.beforeAddLiquidity.selector;
+        return IUniswapV4Hook.beforeModifyPosition.selector;
     }
 
-    // Hook function called before liquidity is removed from the pool
-    // Currently, it doesn't modify the liquidity removal process
-    function beforeRemoveLiquidity(
-        address,
+    function beforeInitialize(
+        address sender,
         PoolKey calldata key,
-        IPoolManager.ModifyLiquidityParams calldata,
-        bytes calldata
+        uint160 sqrtPriceX96,
+        bytes calldata hookData
     ) external override returns (bytes4) {
-        return BaseHook.beforeRemoveLiquidity.selector;
+        return IUniswapV4Hook.beforeInitialize.selector;
     }
-
-    function getOption() public view returns (Option) {
-        return swapStorage.option;
-    }
-
-    // function _handleExercise(ExerciseParams memory params) internal pure returns (uint256 amountIn, uint256 amountOut) {
-    //     return MarketLib.computeExercise(
-    //         !params.isCallExercise,
-    //         params.amountSpecified,
-    //         params.base,
-    //         params.quote,
-    //         params.strike,
-    //         params.volatility,
-    //         params.tau,
-    //         params.spotPrice
-    //     );
-    // }
 }
-

@@ -11,10 +11,7 @@ pragma solidity ^0.8.19;
 // import {Numo} from "../src/Numo.sol";
 // import {HookMiner} from "../test/utils/HookMiner.sol";
 
-// contract CounterScript is Script {
-//     address constant CREATE2_DEPLOYER = address(0x4e59b44847b379578588920cA78FbF26c0B4956C);
-//     address constant GOERLI_POOLMANAGER = address(0x3A9D48AB9751398BbFa63ad67599Bb04e4BdF98b);
-
+// contract DeployNumoScript is Script {
 //     function setUp() public {}
 
 //     function run() public {

@@ -11,21 +11,26 @@
   <br />
 </div>
 
-#### Automated market maker for efficient swapping of on-chain FX. 
+#### Automated market maker for hedging on-chain FX markets. 
 
 ## Overview
-The most intresting application built on top of Numo's log-normal curve are cash settled forwards for currency hedging. Under the hood, each forward would be repersented as a liquidity provider position in Numo, a [Uniswap V4 hook](https://github.com/Uniswap/v4-core). The synthetic `forward` uses arbitrageurs to rebalance the position so that the the desired payoff of a cash-settled forward is always maintained. This process is known as *replicating a portfolio with options* and typical done by sophicated market maker to hedge illiquid FX pairs.  Similar to traditional forwards, users can set a pair of `strikes` and an `expiry` to match their needs.  
+
+Automated market makers enable [instant cross-border payments](https://app.uniswap.org/OnchainFX.pdf) (e.g. USDC -> EUROC), but currently can't hedge the exchange rate risk for recurring or future payments, a critical problem for businesses and global remittances. For anyone looking to lock in a specific exchange rate for a specific time, Numo can do so for any FX pair without needing to find a counterparty.
+
+### FX Forwards
+
+Numo is a [Uniswap V4](https://docs.uniswap.org/contracts/v4/overview) hook that enables the construction of synthetic derivative exposures, with cash-settled FX forwards being the most powerful application. Forwards allow anyone to lock in an exchange rate for a specific time. Under the hood, each forward is a liquidity provider (LP) position in Numo repersented as an `ERC-20`. Arbitrageurs then rebalance the LP position so that the desired payoff of a forward is always maintained. In other words, the exhange rate is always maintained. This process is known as *payoff replication* and typically done by sophicated market makers when their is an illiquid market.  Similar to traditional forwards, users set a pair of `strikes` and an `expiry` to match their needs.  
 
 ### Advantages 
 
-- No exchange rate risk
-- Globally accessible
-- No reliance on counterparties
-- Customizability 
+- ✅ No exchange rate risk
+- 🌍 Globally accessible
+- 🤝 No reliance on counterparties
+- 🛠️ Customizability 
 
 #### Acknowledgements
 
-The smart contract suite is inspired by Primitive's open source [RMM](https://github.com/primitivefinance/rmm) and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first proved the replicated portfolio of any option strategy can be constructed using AMMs.
+The smart contract suite is inspired by Primitive's [RMM](https://github.com/primitivefinance/rmm) implementation and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first proved that any synethic derivative expsoure can be constructed using AMMs without needing a liquid options market. 
 
 
 ## Setup
