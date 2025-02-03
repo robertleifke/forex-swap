@@ -20,6 +20,7 @@ import { ProtocolFeeLibrary } from "@v4-core/libraries/ProtocolFeeLibrary.sol";
 import { SwapMath } from "@v4-core/libraries/SwapMath.sol";
 import { SafeCastLib } from "@solady/utils/SafeCastLib.sol";
 import { Currency } from "@v4-core/types/Currency.sol";
+import { LogNormal } from "./LogNormal.sol";
 
 struct PortfolioData {
     int24 strikeFloor;
@@ -82,11 +83,10 @@ event EarlyExit(uint256 epoch);
 event InsufficientProceeds();
 
 uint256 constant MAX_SWAP_FEE = SwapMath.MAX_SWAP_FEE;
-uint256 constant WAD = 1e18;
-int256 constant I_WAD = 1e18;
-int24 constant MAX_TICK_SPACING = 30;
-uint256 constant MAX_PRICE_DISCOVERY_SLUGS = 10;
-uint256 constant NUM_DEFAULT_SLUGS = 3;
+uint256 constant MIN_WIDTH = 1;
+uint256 constant MAX_WIDTH = uint256(int24(TickMath.MAX_TICK) - TickMath.MIN_TICK);
+uint256 constant MIN_MEAN = 1e18;
+uint256 constant MAX_MEAN = 1e18 * 100;
 
 contract Numo is BaseHook {
     using PoolIdLibrary for PoolKey;
@@ -98,10 +98,16 @@ contract Numo is BaseHook {
     using SafeCastLib for int256;
     using SafeCastLib for uint256;
 
+    struct LogNormalParams {
+        uint256 mean;
+        uint256 width;
+        uint256 swapFee;
+        uint256 controller;
+    }
+
     bool public insufficientProceeds; // triggers if the pool matures and minimumProceeds is not met
     bool public earlyExit; // triggers if the pool ever reaches or exceeds maximumProceeds
 
-    
     bool public isInitialized;
 
     PoolKey public poolKey;
@@ -142,44 +148,41 @@ contract Numo is BaseHook {
     ) {
         poolManager = _poolManager;
     }
+
+    function setPoolParams(
+        PoolKey calldata key,
+        uint256 mean, 
+        uint256 width,
+        uint256 swapFee,
+        uint256 controller)
+    ) external {
+        if (msg.sender != address(poolManager)) revert SenderNotPoolManager();
+
+        if (mean < MIN_MEAN || mean > MAX_MEAN) revert InvalidMean();
+        if (width < MIN_WIDTH || width > MAX_WIDTH) revert InvalidWidth();
+        
+    }
     function beforeSwap(
         address sender,
         PoolKey calldata key,
         IPoolManager.SwapParams calldata params,
-        bytes calldata hookData
+        bytes calldata data
     ) external override returns (bytes4) {
         require(msg.sender == address(poolManager), "Unauthorized");
 
-        // Extract log-normal parameters from hookData
-        (uint256 volatility, uint256 drift) = abi.decode(hookData, (uint256, uint256));
+        bytes32 poolId = keccak256(abi.encode(key));
+        LogNormalParams storage pool = poolParams[poolId];
 
-        // Compute log-normal price adjustment
-        int256 priceShift = computeLogNormalPrice(params.amountSpecified, volatility, drift);
+        if (sender != pool.controller) revert Unauthorized();
 
-        // Apply price shift to the swap parameters (modifies sqrtPriceX96)
-        params.sqrtPriceX96 = uint160(uint256(int256(params.sqrtPriceX96) + priceShift));
+        uint256 amountIn = params.amount.abs();
+        uint256 deltaL;
 
-        return IUniswapV4Hook.beforeSwap.selector;
-    }
-
-    function computeLogNormalPrice(
-        int256 amountSpecified,
-        uint256 volatility,
-        uint256 drift
-    ) internal pure returns (int256) {
-        // Log-normal price adjustment using the Black-Scholes-like model
-        // Formula: P' = P * exp(volatility * sqrt(t) + drift * t)
-        uint256 t = 1 days; // Assume daily rebalancing for now
-
-        int256 logPriceChange = int256(
-            (volatility * sqrt(t) / 1e18) + (drift * t / 1e18)
-        );
-
-        return logPriceChange;
-    }
-
-    function sqrt(uint256 x) internal pure returns (uint256) {
-        return x**(1/2);
+        if (params.zeroForOne) {
+            deltaL = pool.liquidity.mul(amountIn).div(pool.sqrtPriceX96);
+        } else {
+            deltaL = pool.liquidity.mul(amountIn).div(pool.sqrtPriceX96);
+        }
     }
 
     function beforeModifyPosition(

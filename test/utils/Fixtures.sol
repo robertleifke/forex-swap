@@ -1,20 +1,20 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Currency} from "v4-core/src/types/Currency.sol";
-import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
-import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
-import {PositionManager} from "v4-periphery/src/PositionManager.sol";
-import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol";
-import {Hooks} from "v4-core/src/libraries/Hooks.sol";
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {Deployers} from "v4-core/test/utils/Deployers.sol";
+import {Currency} from "lib/v4-core/src/types/Currency.sol";
+import {BalanceDelta} from "lib/v4-core/src/types/BalanceDelta.sol";
+import {IPoolManager} from "lib/v4-core/src/interfaces/IPoolManager.sol";
+import {PositionManager} from "lib/v4-periphery/src/PositionManager.sol";
+import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
+import {Hooks} from "lib/v4-core/src/libraries/Hooks.sol";
+import {PoolKey} from "lib/v4-core/src/types/PoolKey.sol";
+import {Deployers} from "lib/v4-core/test/utils/Deployers.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {IAllowanceTransfer} from "permit2/src/interfaces/IAllowanceTransfer.sol";
 import {DeployPermit2} from "permit2/test/utils/DeployPermit2.sol";
-import {IERC721Permit_v4} from "v4-periphery/src/interfaces/IERC721Permit_v4.sol";
-import {IEIP712_v4} from "v4-periphery/src/interfaces/IEIP712_v4.sol";
-import {ERC721PermitHash} from "v4-periphery/src/libraries/ERC721PermitHash.sol";
+import {IERC721Permit_v4} from "lib/v4-periphery/src/interfaces/IERC721Permit_v4.sol";
+import {IEIP712_v4} from "lib/v4-periphery/src/interfaces/IEIP712_v4.sol";
+import {ERC721PermitHash} from "lib/v4-periphery/src/libraries/ERC721PermitHash.sol";
 
 /// @notice A shared test contract that wraps the v4-core deployers contract and exposes basic liquidity operations on posm.
 contract Fixtures is Deployers, DeployPermit2 {

@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity ^0.8.21;
 
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {BalanceDelta, toBalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
-import {Currency, CurrencyLibrary} from "v4-core/src/types/Currency.sol";
-import {IPositionManager} from "v4-periphery/src/interfaces/IPositionManager.sol";
-import {Actions} from "v4-periphery/src/libraries/Actions.sol";
-import {SafeCast} from "v4-core/src/libraries/SafeCast.sol";
-import {PositionInfo, PositionInfoLibrary} from "v4-periphery/src/libraries/PositionInfoLibrary.sol";
+import {PoolKey} from "lib/v4-core/src/types/PoolKey.sol";
+import {BalanceDelta, toBalanceDelta} from "lib/v4-core/src/types/BalanceDelta.sol";
+import {Currency, CurrencyLibrary} from "lib/v4-core/src/types/Currency.sol";
+import {IPositionManager} from "lib/v4-periphery/src/interfaces/IPositionManager.sol";
+import {Actions} from "lib/v4-periphery/src/libraries/Actions.sol";
+import {SafeCast} from "lib/v4-core/src/libraries/SafeCast.sol";
+import {PositionInfo, PositionInfoLibrary} from "lib/v4-periphery/src/libraries/PositionInfoLibrary.sol";
 
 /// @title Easy Position Manager
 /// @notice A library for abstracting Position Manager calldata
