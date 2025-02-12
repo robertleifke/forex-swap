@@ -23,7 +23,7 @@ One of the most powerful applications of Numo is replicating perpetual futures f
 
 ### Forwards
 
-AMMs have enabled [instant cross-border payments](https://app.uniswap.org/OnchainFX.pdf) (e.g. USDC -> EUROC), but currently can't hedge the exchange rate risk for conditional ones such as recurring payments, a critical problem faced by businesses. Numo can replicate an FX forward so users can lock in an exchange rate for a specific time. 
+AMMs have enabled [instant cross-border payments](https://app.uniswap.org/OnchainFX.pdf) can't hedge the exchange rate risk for conditional ones such as recurring payments, a critical problem faced by businesses. Numo can replicate an FX forward so users can lock in an exchange rate for a specific time. 
 
 ### Advantages 
 
