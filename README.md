@@ -11,19 +11,23 @@
   <br />
 </div>
 
-#### Automated market maker for hedging on-chain FX markets. 
+#### Automated market maker for on-chain derivatives
 
 ## Overview
 
-Automated market makers enable [instant cross-border payments](https://app.uniswap.org/OnchainFX.pdf) (e.g. USDC -> EUROC), but currently can't hedge the exchange rate risk for conditional one such as recurring or future payments, a critical problem for businesses and global remittances. For anyone looking to lock in a specific exchange rate for a specific time, Numo can do so for any FX pair without needing to find a counterparty.
+Automated market makers (AMMs) have revolutionized spot markets by bootstrapping liquidity without relying on external price feeds. As the token economy expands, this mechanism has proven invaluable. Yet, no equivalent solution exists for derivatives. Bootstrapping liquidity for derivative markets without established prices is a fundamentally harder problem. As a result, derivative markets are limited to a small subset of tokens. Numo changes this. By leveraging the novelty of AMMs, Numo enables derivative exposure on any token—without requiring a counterparty or oracles.
 
-### FX Forwards
+### Perpetual Futures, "Perps"
 
-Numo is is a log-normal AMM that is built as a [Uniswap V4](https://docs.uniswap.org/contracts/v4/overview) hook. It's trading curve enables the construction of synthetic derivative exposures, with cash-settled FX forwards being the most powerful application. Forwards allow anyone to lock in an exchange rate for a specific time. Under the hood, each forward is a liquidity provider (LP) position in Numo repersented as an `ERC-20`. Arbitrageurs then rebalance the LP position so that the desired payoff of a forward is always maintained. In other words, the exhange rate is always maintained. This process is known as *payoff replication* and typically done by sophicated market makers when their is an illiquid market.  Similar to traditional forwards, users set a pair of `strikes` and an `expiry` to match their needs.  
+One of the most powerful applications of Numo is replicating perpetual futures for long-tail cryptocurrencies. 
+
+### Forwards
+
+AMMs have enabled [instant cross-border payments](https://app.uniswap.org/OnchainFX.pdf) (e.g. USDC -> EUROC), but currently can't hedge the exchange rate risk for conditional ones such as recurring payments, a critical problem faced by businesses. Numo can replicate an FX forward so users can lock in an exchange rate for a specific time. 
 
 ### Advantages 
 
-- ✅ No exchange rate risk
+- ✅ Any derivative exposure
 - 🌍 Globally accessible
 - 🤝 No reliance on counterparties
 - 🛠️ Customizability 
