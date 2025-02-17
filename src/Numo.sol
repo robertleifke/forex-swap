@@ -21,7 +21,7 @@ import { SwapMath } from "@v4-core/libraries/SwapMath.sol";
 import { SafeCastLib } from "@solady/utils/SafeCastLib.sol";
 import { Currency } from "@v4-core/types/Currency.sol";
 import { LogNormal } from "./LogNormal.sol";
-
+import { BaseCustomCurveHook } from "@uniswap-hooks/base/BaseCustomCurveHook.sol";
 struct PortfolioData {
     int24 strikeFloor;
     int24 strikeCeiling;
@@ -88,7 +88,7 @@ uint256 constant MAX_WIDTH = uint256(int24(TickMath.MAX_TICK) - TickMath.MIN_TIC
 uint256 constant MIN_MEAN = 1e18;
 uint256 constant MAX_MEAN = 1e18 * 100;
 
-contract Numo is BaseHook {
+contract Numo is BaseCustomCurveHook {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
     using TransientStateLibrary for IPoolManager;
