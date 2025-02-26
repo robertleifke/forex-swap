@@ -7,8 +7,7 @@ import {InsufficientOutput} from "../../src/lib/Errors.sol";
 
 contract DeallocateTest is SetUp {
     function test_deallocate_BurnsLiquidity() public useDefaultPool {
-        (uint256 deltaXWad, uint256 deltaYWad, uint256 deltaLiquidity,) =
-            rmm.prepareAllocate(true, 0.1 ether);
+        (uint256 deltaXWad, uint256 deltaYWad, uint256 deltaLiquidity,) = rmm.prepareAllocate(true, 0.1 ether);
 
         deltaLiquidity = rmm.allocate(true, 0.1 ether, deltaLiquidity, address(this));
 
@@ -21,8 +20,7 @@ contract DeallocateTest is SetUp {
     }
 
     function test_deallocate_AdjustsPool() public useDefaultPool withSY(address(this), 1_000 ether) {
-        (uint256 deltaXWad, uint256 deltaYWad, uint256 deltaLiquidity,) =
-            rmm.prepareAllocate(true, 0.1 ether);
+        (uint256 deltaXWad, uint256 deltaYWad, uint256 deltaLiquidity,) = rmm.prepareAllocate(true, 0.1 ether);
 
         deltaLiquidity = rmm.allocate(true, 0.1 ether, deltaLiquidity, address(this));
 
@@ -39,8 +37,7 @@ contract DeallocateTest is SetUp {
     }
 
     function test_deallocate_TransfersTokens() public useDefaultPool withSY(address(this), 1_000 ether) {
-        (uint256 deltaXWad, uint256 deltaYWad, uint256 deltaLiquidity,) =
-            rmm.prepareAllocate(true, 0.1 ether);
+        (uint256 deltaXWad, uint256 deltaYWad, uint256 deltaLiquidity,) = rmm.prepareAllocate(true, 0.1 ether);
         deltaLiquidity = rmm.allocate(true, 0.1 ether, deltaLiquidity, address(this));
         uint256 lptBurned;
 
@@ -59,8 +56,7 @@ contract DeallocateTest is SetUp {
     }
 
     function test_deallocate_EmitsDeallocate() public useDefaultPool withSY(address(this), 1_000 ether) {
-        (uint256 deltaXWad, uint256 deltaYWad, uint256 deltaLiquidity,) =
-            rmm.prepareAllocate(true, 0.1 ether);
+        (uint256 deltaXWad, uint256 deltaYWad, uint256 deltaLiquidity,) = rmm.prepareAllocate(true, 0.1 ether);
         deltaLiquidity = rmm.allocate(true, 0.1 ether, deltaLiquidity, address(this));
         uint256 lptBurned;
 
@@ -72,8 +68,7 @@ contract DeallocateTest is SetUp {
     }
 
     function test_deallocate_RevertsIfInsufficientSYOutput() public useDefaultPool withSY(address(this), 1_000 ether) {
-        (uint256 deltaXWad, uint256 deltaYWad, uint256 deltaLiquidity,) =
-            rmm.prepareAllocate(true, 0.1 ether);
+        (uint256 deltaXWad, uint256 deltaYWad, uint256 deltaLiquidity,) = rmm.prepareAllocate(true, 0.1 ether);
         deltaLiquidity = rmm.allocate(true, 0.1 ether, deltaLiquidity, address(this));
         uint256 lptBurned;
 
@@ -85,8 +80,7 @@ contract DeallocateTest is SetUp {
     }
 
     function test_deallocate_RevertsIfInsufficientPTOutput() public useDefaultPool withSY(address(this), 1_000 ether) {
-        (uint256 deltaXWad, uint256 deltaYWad, uint256 deltaLiquidity,) =
-            rmm.prepareAllocate(true, 0.1 ether);
+        (uint256 deltaXWad, uint256 deltaYWad, uint256 deltaLiquidity,) = rmm.prepareAllocate(true, 0.1 ether);
         deltaLiquidity = rmm.allocate(true, 0.1 ether, deltaLiquidity, address(this));
         uint256 lptBurned;
 

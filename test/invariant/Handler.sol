@@ -95,7 +95,6 @@ contract RMMHandler is CommonBase, StdUtils, StdCheats {
 
         rmm.init(priceX, amountX, strike);
 
-
         ghost_reserveX += rmm.reserveX();
         ghost_reserveY += rmm.reserveY();
         ghost_totalLiquidity += int256(totalLiquidity);
@@ -120,7 +119,6 @@ contract RMMHandler is CommonBase, StdUtils, StdCheats {
         PT.approve(address(rmm), deltaYWad);
         uint256 realDeltaLiquidity = rmm.allocate(true, deltaX, deltaLiquidity, address(currentActor));
         vm.stopPrank();
-
 
         ghost_totalLiquidity += int256(realDeltaLiquidity);
         ghost_reserveX += deltaXWad;
@@ -162,20 +160,12 @@ contract RMMHandler is CommonBase, StdUtils, StdCheats {
         vm.startPrank(currentActor);
         PYIndex index = YT.newIndex();
 
-        (uint256 syMinted, uint256 ytOut) = rmm.computeTokenToYT(
-            index, address(weth), amountTokenIn, 0, block.timestamp, 0, 1_000
-        );
+        (uint256 syMinted, uint256 ytOut) =
+            rmm.computeTokenToYT(index, address(weth), amountTokenIn, 0, block.timestamp, 0, 1_000);
 
         weth.approve(address(rmm), amountTokenIn);
         (uint256 amountInWad, uint256 amountOutWad, int256 deltaLiquidity) = rmm.swapExactTokenForYt(
-            address(weth),
-            amountTokenIn,
-            ytOut,
-            syMinted,
-            ytOut,
-            10 ether,
-            0.005 ether,
-            address(currentActor)
+            address(weth), amountTokenIn, ytOut, syMinted, ytOut, 10 ether, 0.005 ether, address(currentActor)
         );
 
         vm.stopPrank();
@@ -220,8 +210,7 @@ contract RMMHandler is CommonBase, StdUtils, StdCheats {
         deal(address(YT), currentActor, ytIn);
         vm.startPrank(currentActor);
         YT.approve(address(rmm), ytIn);
-        (, uint256 amountIn, int256 deltaLiquidity) =
-            rmm.swapExactYtForSy(ytIn, 1000 ether, address(currentActor));
+        (, uint256 amountIn, int256 deltaLiquidity) = rmm.swapExactYtForSy(ytIn, 1000 ether, address(currentActor));
         vm.stopPrank();
 
         ghost_reserveX += amountIn;
