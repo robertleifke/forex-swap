@@ -30,9 +30,9 @@ Automated market makers (AMMs) have revolutionized spot markets by bootstrapping
 - 🤝 No reliance on counterparties
 - 🛠️ Customizability 
 
-### Architecture
+## Architecture
 
-Numo is a Uniswap V4 hook that inherits OpenZeppelin's `BaseCustomCurve` contract from their `uniswap-hooks` library. Thus enabling Numo to inherit much of the security guarantees of Uniswap V4 battle tested code while overridng the concentrated liquidity logic to support the replication of deriatives. Instead of calling `beforeSwap` directly, Numo.sol implements its custom trading curve logic in `_getUnspecifiedAmount` to support the replication of derivatives. Each call and put is repersented as a `ERC-6909` token. 
+Numo is a Uniswap V4 hook that inherits OpenZeppelin's `BaseCustomCurve` contract from their `uniswap-hooks` library. Thus enabling Numo to inherit much of the security guarantees of Uniswap V4 battle tested code while overriding the concentrated liquidity logic to support the replication of deriatives. Instead of calling `beforeSwap` directly, Numo.sol implements its custom trading curve logic in `_getUnspecifiedAmount` to support the replication of derivatives. Each call and put is repersented as a `ERC-6909` token. 
 
 #### Trading curve
 
