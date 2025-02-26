@@ -88,7 +88,7 @@ uint256 constant MAX_WIDTH = uint256(int24(TickMath.MAX_TICK) - TickMath.MIN_TIC
 uint256 constant MIN_MEAN = 1e18;
 uint256 constant MAX_MEAN = 1e18 * 100;
 
-contract Numo is BaseCustomCurveHook {
+contract Numo is BaseCustomCurveHook, LogNormal {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
     using TransientStateLibrary for IPoolManager;
@@ -105,17 +105,11 @@ contract Numo is BaseCustomCurveHook {
         uint256 controller;
     }
 
-    bool public insufficientProceeds; // triggers if the pool matures and minimumProceeds is not met
-    bool public earlyExit; // triggers if the pool ever reaches or exceeds maximumProceeds
-
     bool public isInitialized;
 
     PoolKey public poolKey;
     address public initializer;
 
-    uint256 internal numTokensToSell; // total amount of tokens to be sold
-    uint256 internal minimumProceeds; // minimum proceeds required to avoid refund phase
-    uint256 internal maximumProceeds; // proceeds amount that will trigger early exit condition
     uint256 internal startingTime; // sale start time
     uint256 internal endingTime; // sale end time
     int24 internal startingTick; // dutch auction starting tick
@@ -123,17 +117,34 @@ contract Numo is BaseCustomCurveHook {
     uint256 internal epochLength; // length of each epoch (seconds)
     int24 internal gamma; // 1.0001 ** (gamma), represents the maximum tick change for the entire bonding curve
     bool internal isToken0; // whether token0 is the token being sold (true) or token1 (false)
-    uint256 internal numPDSlugs; // number of price discovery slugs
 
     uint256 internal totalEpochs; // total number of epochs
     uint256 internal normalizedEpochDelta; // normalized delta between two epochs
-    int24 internal upperSlugRange; // range of the upper slug
 
     State public state;
     mapping(bytes32 salt => Position position) public positions;
 
     receive() external payable {
         if (msg.sender != address(poolManager)) revert SenderNotPoolManager();
+    }
+
+    function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
+        return Hooks.Permissions({
+            beforeInitialize: false,
+            afterInitialize: false,
+            beforeAddLiquidity: true,
+            afterAddLiquidity: true,
+            beforeRemoveLiquidity: true,
+            afterRemoveLiquidity: true,
+            beforeSwap: true,
+            afterSwap: true,
+            beforeDonate: false,
+            afterDonate: false,
+            beforeSwapReturnDelta: true,
+            afterSwapReturnDelta: true,
+            afterAddLiquidityReturnDelta: true,
+            afterRemoveLiquidityReturnDelta: true
+        });
     }
 
     constructor(
@@ -185,7 +196,7 @@ contract Numo is BaseCustomCurveHook {
         }
     }
 
-    function beforeModifyPosition(
+    function beforeAddLiquidity(
         address sender,
         PoolKey calldata key,
         IPoolManager.ModifyPositionParams calldata params,
