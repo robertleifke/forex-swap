@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {BaseHook} from "v4-periphery/src/base/hooks/BaseHook.sol";
+import {BaseCustomCurve} from "@uniswap-hooks/base/BaseCustomCurve.sol";
 import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
@@ -12,86 +12,96 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /// @title Numo
 /// @notice An hook for replicating short puts and calls
-contract Numo is BaseHook {
-    uint256 public sigma; 
-    uint256 public maturity; 
-    uint256 public strike; 
+contract Numo is BaseCustomCurve {
+    using FixedPointMathLib for uint256;
 
-    uint256 public reserveX;
-    uint256 public reserveY; 
-    uint256 public totalLiquidity;
-    uint256 public lastImpliedPrice; 
+    uint256 public sigma; // Volatility parameter
+    uint256 public maturity; // Expiry timestamp
+    uint256 public strike; // Strike price
 
-    /// @notice Creates a Numo pool 
-    /// @param _poolManager V4 pool manager
-    /// @param _sigma volatility parameter
-    /// @param _strike strike price
-    /// @param _maturity expiry
+    uint256 public totalLiquidity; // Total LP supply
+    uint256 public lastImpliedPrice; // Last computed implied price
+
+    /// @notice Creates a Numo pool
+    /// @param _poolManager Uniswap V4 Pool Manager
+    /// @param _sigma Implied volatility
+    /// @param _strike Strike price
+    /// @param _maturity Expiry timestamp
     constructor(IPoolManager _poolManager, uint256 _sigma, uint256 _strike, uint256 _maturity)
-        BaseHook(_poolManager)
+        BaseCustomCurve(_poolManager)
     {
         sigma = _sigma;
         strike = _strike;
         maturity = _maturity;
     }
 
-    function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
+    /// @dev Hook permissions for Uniswap V4
+    function getHookPermissions() public pure override returns (Hooks.Permissions memory permissions) {
         return Hooks.Permissions({
-            beforeInitialize: false,
+            beforeInitialize: true,
             afterInitialize: false,
             beforeAddLiquidity: true,
+            beforeRemoveLiquidity: true,
             afterAddLiquidity: false,
-            beforeRemoveLiquidity: false,
             afterRemoveLiquidity: false,
             beforeSwap: true,
             afterSwap: false,
             beforeDonate: false,
             afterDonate: false,
-            beforeSwapReturnDelta: false,
+            beforeSwapReturnDelta: true,
             afterSwapReturnDelta: false,
             afterAddLiquidityReturnDelta: false,
             afterRemoveLiquidityReturnDelta: false
         });
     }
 
-    function beforeSwap(
-        address sender,
-        PoolKey calldata key,
-        IPoolManager.SwapParams calldata params,
-        bytes calldata hookData
-    ) external override onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
-        uint256 adjustedPrice = computeSpotPrice();
-
-        BeforeSwapDelta delta = toBeforeSwapDelta(SafeCast.toInt128(int256(adjustedPrice)), 0);
-
-        return (IHooks.beforeSwap.selector, delta, 100);
+    /// @notice Compute swap amounts, enforcing expiry logic.
+    function _getUnspecifiedAmount(IPoolManager.SwapParams calldata params)
+        internal
+        override
+        returns (uint256 unspecifiedAmount)
+    {
+        if (block.timestamp >= maturity) {
+            // If expired, lock price to strike
+            unspecifiedAmount = params.amountSpecified.mulWadDown(strike);
+        } else {
+            // Pre-expiry: Compute implied price using RMM formula
+            uint256 impliedPrice = computeSpotPrice();
+            unspecifiedAmount = params.amountSpecified.mulWadDown(impliedPrice);
+        }
     }
 
-    function beforeAddLiquidity(
-        address sender,
-        PoolKey calldata key,
-        IPoolManager.ModifyLiquidityParams calldata params,
-        bytes calldata hookData
-    ) external override onlyPoolManager returns (bytes4) {
-        uint256 newLiquidity = computeLiquidity(SafeCast.toUint256(params.liquidityDelta));
-
-        emit LiquidityAdjusted(sender, newLiquidity);
-
-        return IHooks.beforeAddLiquidity.selector;
-    }
-
-    /// @dev Computes the adjusted spot price based on implied volatility and time to maturity.
+    /// @dev Computes the adjusted spot price based on volatility and time to expiry.
     function computeSpotPrice() public view returns (uint256) {
-        uint256 timeToExpiry = maturity > block.timestamp ? (maturity - block.timestamp) : 0;
+        if (block.timestamp >= maturity) return strike; // Expired → settle at strike
 
-        return timeToExpiry > 0
-            ? uint256(int256(lastImpliedPrice) * int256(365 * 86400) / int256(timeToExpiry))
-            : 1 ether;
+        uint256 timeToExpiry = maturity - block.timestamp; // Remaining time
+        return sigma.mulWadDown(strike).mulWadDown(timeToExpiry);
     }
 
-    function computeLiquidity(uint256 liquidityDelta) internal view returns (uint256) {
-        return totalLiquidity + (liquidityDelta * sigma) / 1e18;
+    /// @notice Handles adding liquidity but prevents adding after expiry.
+    function _getAmountIn(AddLiquidityParams memory params)
+        internal
+        override
+        returns (uint256 amount0, uint256 amount1, uint256 shares)
+    {
+        if (block.timestamp >= maturity) revert("RMM: Expired, Cannot Add Liquidity");
+
+        amount0 = params.amount0;
+        amount1 = params.amount1;
+        shares = amount0 + amount1; // Simple proportional liquidity
+        totalLiquidity += shares;
     }
 
-    event LiquidityAdjusted(address indexed sender, uint256 newLiquidity);
+    /// @notice Handles removing liquidity, allowing settlement post-expiry.
+    function _getAmountOut(RemoveLiquidityParams memory params)
+        internal
+        override
+        returns (uint256 amount0, uint256 amount1, uint256 shares)
+    {
+        shares = params.liquidity;
+        amount0 = shares.mulDivDown(totalLiquidity, totalLiquidity + shares);
+        amount1 = shares.mulDivDown(totalLiquidity, totalLiquidity + shares);
+        totalLiquidity -= shares;
+    }
 }
