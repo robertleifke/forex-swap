@@ -11,7 +11,7 @@ import {BeforeSwapDelta, toBeforeSwapDelta} from "@uniswap/v4-core/src/types/Bef
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 
 /// @title Numo
-/// @notice A hook for a Numo pool.
+/// @notice An hook for replicating short puts and calls
 contract Numo is BaseHook {
     uint256 public sigma; 
     uint256 public maturity; 
@@ -22,11 +22,11 @@ contract Numo is BaseHook {
     uint256 public totalLiquidity;
     uint256 public lastImpliedPrice; 
 
-    /// @notice Creates a new Numo Hook instance
-    /// @param _poolManager The Uniswap V4 pool manager
-    /// @param _sigma The volatility parameter
-    /// @param _strike The strike price
-    /// @param _maturity The maturity timestamp
+    /// @notice Creates a Numo pool 
+    /// @param _poolManager V4 pool manager
+    /// @param _sigma volatility parameter
+    /// @param _strike strike price
+    /// @param _maturity expiry
     constructor(IPoolManager _poolManager, uint256 _sigma, uint256 _strike, uint256 _maturity)
         BaseHook(_poolManager)
     {
@@ -54,7 +54,6 @@ contract Numo is BaseHook {
         });
     }
 
-    /// @dev Applies an adjustment to the trading function before a swap executes.
     function beforeSwap(
         address sender,
         PoolKey calldata key,
@@ -63,13 +62,11 @@ contract Numo is BaseHook {
     ) external override onlyPoolManager returns (bytes4, BeforeSwapDelta, uint24) {
         uint256 adjustedPrice = computeSpotPrice();
 
-        // Apply price adjustments dynamically using SafeCast
         BeforeSwapDelta delta = toBeforeSwapDelta(SafeCast.toInt128(int256(adjustedPrice)), 0);
 
         return (IHooks.beforeSwap.selector, delta, 100);
     }
 
-    /// @dev Adjusts liquidity provisioning dynamically before LP deposits funds.
     function beforeAddLiquidity(
         address sender,
         PoolKey calldata key,
@@ -92,7 +89,6 @@ contract Numo is BaseHook {
             : 1 ether;
     }
 
-    /// @dev Computes adjusted liquidity dynamically.
     function computeLiquidity(uint256 liquidityDelta) internal view returns (uint256) {
         return totalLiquidity + (liquidityDelta * sigma) / 1e18;
     }
