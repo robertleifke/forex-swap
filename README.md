@@ -15,11 +15,11 @@
 
 ## Overview
 
-Automated market makers (AMMs) have revolutionized spot markets by bootstrapping liquidity without relying on external price feeds. As the token economy expands, this mechanism has proven invaluable. Yet, no equivalent solution exists for derivatives. Bootstrapping liquidity for derivative markets without established prices is a fundamentally harder problem. As a result, derivative markets are limited to a small subset of tokens. Numo changes this. By leveraging the novelty of AMMs, Numo enables derivative exposure on any token—without requiring a counterparty or oracles.
+Automated market makers (AMMs) have revolutionized spot markets by bootstrapping liquidity without relying on external price feeds. As the token economy expands, this mechanism has proven invaluable. Yet, no equivalent solution exists for derivatives. Bootstrapping liquidity for derivative markets without established prices is a fundamentally harder problem. As a result, derivative markets are limited to a small subset of tokens. Numo changes this. By leveraging the novelty of AMMs, Numo enables derivative exposure on any token—without requiring a counterparty or oracles. 
 
 ### Applications
 
-- **Perpetual Futures:** "Perps" are the most traded cryptocurrency deriative. With Numo, traders can replicate perpetual future exposure on long-tail cryptocurrencies. 
+- **Perpetual Futures:** "Perps" are the most traded cryptocurrency deriative. With Numo, traders can replicate perpetual future exposure on long-tail cryptocurrencies.  
 
 - **Forwards:** For cross-border lending, payments, and exchange, Numo can replicate an FX forward so users can lock in an exchange rate for a specific time. 
 
@@ -29,6 +29,26 @@ Automated market makers (AMMs) have revolutionized spot markets by bootstrapping
 - 🌍 Globally accessible
 - 🤝 No reliance on counterparties
 - 🛠️ Customizability 
+
+### Architecture
+
+Numo is a Uniswap V4 hook that inherits OpenZeppelin's `BaseCustomCurve` contract from their `uniswap-hooks` library. Thus enabling Numo to inherit much of the security guarantees of Uniswap V4 battle tested code while overridng the concentrated liquidity logic to support the replication of deriatives. Instead of calling `beforeSwap` directly, Numo.sol implements its custom trading curve logic in `_getUnspecifiedAmount` to support the replication of derivatives. Each call and put is repersented as a `ERC-6909` token. 
+
+#### Trading curve
+
+The trading curve in Numo determines the price and behavior of the AMM. Unlike a traditional constant product AMM like in Uniswap V2, Numo implements a log-normal model to adjusts prices dynamically based on volatility (σ), strike (K), and time to maturity (τ). It allows users to swap assets at implied vol-adjusted prices, mimicking an options market. The formula:
+
+<img src="./image/formula.png" alt="Formula" width="300"/>
+
+Implemented in `computeTradingFunction(...)` with the following parameters:
+
+- Reserve balances `reserveX`, `reserveY`
+- Liquidity `totalLiquidity`
+- Strike price `strike`
+- Implied volatility `sigma`
+- Time to maturity `tau`
+
+
 
 #### Acknowledgements
 
