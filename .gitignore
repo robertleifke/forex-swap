@@ -1,18 +1,13 @@
 # Compiler files
 cache/
 out/
-
-# Ignores development (and goerli) broadcast logs
-!/broadcast
-/broadcast/*/31337/
-/broadcast/*/5/
-/broadcast/**/dry-run/
-
-# Docs
-docs/
+broadcast/
 
 # Dotenv file
 .env
 
-# Node modules
-node_modules/
+# vscode
+.vscode
+
+# Git hooks
+.githooks/
