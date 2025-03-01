@@ -89,6 +89,10 @@ contract Numo is BaseCustomCurve {
         totalLiquidity_ = SwapLib.solveL(comp, initialLiquidity, amountY, sigma_);
     }
 
+
+    /// @notice Get the amount of unspecified amount
+    /// @param params The swap params
+    /// @return unspecifiedAmount The amount of unspecified amount
     function _getUnspecifiedAmount(IPoolManager.SwapParams calldata params)
         internal
         override
@@ -97,7 +101,6 @@ contract Numo is BaseCustomCurve {
         if (block.timestamp >= maturity) {
             unspecifiedAmount = uint256(params.amountSpecified > 0 ? params.amountSpecified : -params.amountSpecified).mulWadDown(strike);
         } else {
-            // Pre-expiry: Compute implied price using RMM formula
             uint256 impliedPrice = getSpotPrice();
             unspecifiedAmount = uint256(params.amountSpecified > 0 ? params.amountSpecified : -params.amountSpecified).mulWadDown(impliedPrice);
         }
@@ -122,7 +125,7 @@ contract Numo is BaseCustomCurve {
         override
         returns (uint256 amount0, uint256 amount1, uint256 shares)
     {
-        if (block.timestamp >= maturity) revert("RMM: Expired, Cannot Add Liquidity");
+        if (block.timestamp >= maturity) revert("Expired, Cannot Add Liquidity");
 
         amount0 = params.amount0Desired;
         amount1 = params.amount1Desired;
