@@ -20,7 +20,22 @@ abstract contract TestSetup is Test {
         strike = 2000e18;  
         maturity = block.timestamp + 7 days; 
 
-        uint160 flags = uint160(Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG);  // TODO: change to correct flags
+        uint160 flags = uint160(
+            Hooks.BEFORE_INITIALIZE_FLAG | 
+            Hooks.AFTER_INITIALIZE_FLAG |
+            Hooks.BEFORE_ADD_LIQUIDITY_FLAG |
+            Hooks.AFTER_ADD_LIQUIDITY_FLAG |
+            Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG |
+            Hooks.AFTER_REMOVE_LIQUIDITY_FLAG |
+            Hooks.BEFORE_SWAP_FLAG |
+            Hooks.AFTER_SWAP_FLAG |
+            Hooks.BEFORE_DONATE_FLAG |
+            Hooks.AFTER_DONATE_FLAG |
+            Hooks.BEFORE_SWAP_RETURN_DELTA_FLAG |
+            Hooks.AFTER_SWAP_RETURN_DELTA_FLAG |
+            Hooks.AFTER_ADD_LIQUIDITY_RETURN_DELTA_FLAG |
+            Hooks.AFTER_REMOVE_LIQUIDITY_RETURN_DELTA_FLAG
+        );
         bytes memory constructorArgs = abi.encode(poolManager, sigma, strike, maturity);
         
         (address hookAddress, bytes32 salt) = HookMiner.find(
