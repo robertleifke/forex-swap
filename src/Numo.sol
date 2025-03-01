@@ -62,11 +62,11 @@ contract Numo is BaseCustomCurve {
     {
         if (block.timestamp >= maturity) {
             // If expired, lock price to strike
-            unspecifiedAmount = params.amountSpecified.mulWadDown(strike);
+            unspecifiedAmount = uint256(params.amountSpecified > 0 ? params.amountSpecified : -params.amountSpecified).mulWadDown(strike);
         } else {
             // Pre-expiry: Compute implied price using RMM formula
             uint256 impliedPrice = getSpotPrice();
-            unspecifiedAmount = params.amountSpecified.mulWadDown(impliedPrice);
+            unspecifiedAmount = uint256(params.amountSpecified > 0 ? params.amountSpecified : -params.amountSpecified).mulWadDown(impliedPrice);
         }
     }
 
@@ -86,8 +86,9 @@ contract Numo is BaseCustomCurve {
     {
         if (block.timestamp >= maturity) revert("RMM: Expired, Cannot Add Liquidity");
 
-        amount0 = params.amount0;
-        amount1 = params.amount1;
+        amount0 = params.amount0Desired;
+        amount1 = params.amount1Desired;
+        
         shares = SwapLib.computeLGivenX(amount0, totalLiquidity, strike, sigma, maturity - block.timestamp);
         totalLiquidity += shares;
     }
