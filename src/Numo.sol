@@ -55,6 +55,40 @@ contract Numo is BaseCustomCurve {
         });
     }
 
+    // TODO: override beforeInitialize
+    function prepareInit(
+        uint256 priceX,
+        uint256 amountX,
+        uint256 strike_,
+        uint256 sigma_
+    ) public view returns (uint256 totalLiquidity_, uint256 amountY) {
+        uint256 tau_ = SwapLib.computeTauWadYears(maturity - block.timestamp);
+        
+        SwapLib.PoolPreCompute memory comp = SwapLib.PoolPreCompute({
+            reserveInAsset: amountX,
+            strike_: strike_,
+            tau_: tau_
+        });
+
+        uint256 initialLiquidity = SwapLib.computeLGivenX(
+            amountX,
+            totalLiquidity,
+            strike_,
+            sigma_,
+            tau_
+        );
+
+        amountY = SwapLib.computeY(
+            amountX,
+            initialLiquidity,
+            strike_,
+            sigma_,
+            tau_
+        );
+
+        totalLiquidity_ = SwapLib.solveL(comp, initialLiquidity, amountY, sigma_);
+    }
+
     function _getUnspecifiedAmount(IPoolManager.SwapParams calldata params)
         internal
         override
