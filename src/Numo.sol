@@ -11,6 +11,61 @@ import {BeforeSwapDelta, toBeforeSwapDelta} from "@uniswap/v4-core/src/types/Bef
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "./lib/SwapLib.sol";
 
+///-------------------------------- 
+/// ERRORS
+///--------------------------------
+
+// SPDX-License-Identifier: GPL-3.0-or-later
+pragma solidity ^0.8.24;
+
+/// @dev Thrown if trying to initialize a pool with an invalid strike price (strike < 1e18).
+error InvalidStrike();
+/// @dev Thrown if trying to initialize an already initialized pool.
+error AlreadyInitialized();
+/// @dev Thrown when a `balanceOf` call fails or returns unexpected data.
+error BalanceError();
+/// @dev Thrown when a payment to this contract is insufficient.
+error InsufficientPayment(address token, uint256 actual, uint256 expected);
+/// @dev Thrown when a mint does not output enough liquidity.
+error InsufficientLiquidityOut(bool inTermsOfX, uint256 amount, uint256 minLiquidity, uint256 liquidity);
+/// @dev Thrown when a swap does not output enough tokens.
+error InsufficientOutput(uint256 amountIn, uint256 minAmountOut, uint256 amountOut);
+/// @dev Thrown when a swap does not mint sufficient tokens given the minimum amount.
+error InsufficientSYMinted(uint256 amountMinted, uint256 minAmountMinted);
+/// @dev Thrown when a swap expects greater input than is allowed
+error ExcessInput(uint256 amountOut, uint256 maxAmountIn, uint256 amountIn);
+/// @dev Thrown when an allocate would reduce the liquidity.
+error InvalidAllocate(uint256 deltaX, uint256 deltaY, uint256 currLiquidity, uint256 nextLiquidity);
+/// @dev Thrown on `init` when a token has invalid decimals.
+error InvalidDecimals(address token, uint256 decimals);
+/// @dev Thrown when the trading function result is out of bounds
+error OutOfRange(int256 terminal);
+/// @dev Thrown when a payment to or from the user returns false or no data.
+error PaymentFailed(address token, address from, address to, uint256 amount);
+/// @dev Thrown when a token passed to `mint` is not valid
+error InvalidTokenIn(address tokenIn);
+/// @dev Thrown when an external call is made within the same frame as another.
+error Reentrancy();
+/// @dev Thrown when the maturity date is reached.
+error MaturityReached();
+/// @dev Thrown when a `toInt` call overflows.
+error ToIntOverflow();
+/// @dev Thrown when a `toUint` call overflows.
+error ToUintOverflow();
+
+///-------------------------------- 
+/// EVENTS
+///--------------------------------
+
+event Init(
+    address caller,
+    uint256 totalLiquidity,
+    uint256 strike,
+    uint256 sigma,
+    uint256 fee,
+    uint256 maturity
+);
+
 /// @title Numo
 /// @notice An hook for replicating calls and puts
 contract Numo is BaseCustomCurve {
@@ -23,7 +78,7 @@ contract Numo is BaseCustomCurve {
     uint256 public totalLiquidity;
     uint256 public lastImpliedPrice; 
 
-    /// @notice Creates a Numo pool
+    /// @notice Creates a pool
     /// @param _poolManager Uniswap V4 Pool Manager
     /// @param _sigma Implied volatility
     /// @param _strike Strike price
@@ -39,19 +94,19 @@ contract Numo is BaseCustomCurve {
     function getHookPermissions() public pure override returns (Hooks.Permissions memory permissions) {
         return Hooks.Permissions({
             beforeInitialize: true,
-            afterInitialize: false,
+            afterInitialize: true,
             beforeAddLiquidity: true,
             beforeRemoveLiquidity: true,
-            afterAddLiquidity: false,
-            afterRemoveLiquidity: false,
+            afterAddLiquidity: true,
+            afterRemoveLiquidity: true,
             beforeSwap: true,
-            afterSwap: false,
-            beforeDonate: false,
-            afterDonate: false,
+            afterSwap: true,
+            beforeDonate: true,
+            afterDonate: true,
             beforeSwapReturnDelta: true,
-            afterSwapReturnDelta: false,
-            afterAddLiquidityReturnDelta: false,
-            afterRemoveLiquidityReturnDelta: false
+            afterSwapReturnDelta: true,
+            afterAddLiquidityReturnDelta: true,
+            afterRemoveLiquidityReturnDelta: true
         });
     }
 
@@ -61,7 +116,6 @@ contract Numo is BaseCustomCurve {
         returns (uint256 unspecifiedAmount)
     {
         if (block.timestamp >= maturity) {
-            // If expired, lock price to strike
             unspecifiedAmount = uint256(params.amountSpecified > 0 ? params.amountSpecified : -params.amountSpecified).mulWadDown(strike);
         } else {
             // Pre-expiry: Compute implied price using RMM formula
@@ -71,7 +125,7 @@ contract Numo is BaseCustomCurve {
     }
 
     function getSpotPrice() public view returns (uint256) {
-        if (block.timestamp >= maturity) return strike; // Expired → settle at strike
+        if (block.timestamp >= maturity) return strike; 
 
         uint256 timeToExpiry = maturity - block.timestamp;
         return SwapLib.computeSpotPrice(
