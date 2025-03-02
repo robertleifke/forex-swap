@@ -20,11 +20,8 @@ contract NumoTest is TestSetup {
             hooks: hook
         });
 
-        IPoolManager.SwapParams memory params = IPoolManager.SwapParams({
-            zeroForOne: true,
-            amountSpecified: 1e18,
-            sqrtPriceLimitX96: 0
-        });
+        IPoolManager.SwapParams memory params =
+            IPoolManager.SwapParams({zeroForOne: true, amountSpecified: 1e18, sqrtPriceLimitX96: 0});
 
         bytes memory hookData = "";
 

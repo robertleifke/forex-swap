@@ -16,28 +16,21 @@ abstract contract TestSetup is Test {
     uint256 public maturity;
 
     function setUp() public virtual {
-        poolManager = IPoolManager(deployCode("MockPoolManager.sol"));  
-        
-        sigma = 1e18;      
-        strike = 2000e18;  
-        maturity = block.timestamp + 7 days; 
+        poolManager = IPoolManager(deployCode("MockPoolManager.sol"));
+
+        sigma = 1e18;
+        strike = 2000e18;
+        maturity = block.timestamp + 7 days;
 
         uint160 flags = uint160(
-            Hooks.BEFORE_INITIALIZE_FLAG | 
-            Hooks.BEFORE_ADD_LIQUIDITY_FLAG |
-            Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG |
-            Hooks.BEFORE_SWAP_FLAG |
-            Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
-        );  
-        
-        bytes memory constructorArgs = abi.encode(poolManager, sigma, strike, maturity);
-        
-        (address hookAddress, bytes32 salt) = HookMiner.find(
-            address(this),
-            flags,                  
-            type(Numo).creationCode,
-            constructorArgs        
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG
+                | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
         );
+
+        bytes memory constructorArgs = abi.encode(poolManager, sigma, strike, maturity);
+
+        (address hookAddress, bytes32 salt) =
+            HookMiner.find(address(this), flags, type(Numo).creationCode, constructorArgs);
 
         hook = new Numo{salt: salt}(poolManager, sigma, strike, maturity);
         require(address(hook) == hookAddress, "Hook deployment failed");

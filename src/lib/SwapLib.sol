@@ -56,13 +56,11 @@ library SwapLib {
     /// * As lim_x->0, price(x) = +infinity for all `τ` > 0 and `σ` > 0.
     /// * As lim_x->1, price(x) = 0 for all `τ` > 0 and `σ` > 0.
     /// * If `τ` or `σ` is zero, price is equal to strike.
-    function computeSpotPrice(
-        uint256 reserveX_,
-        uint256 totalLiquidity_,
-        uint256 strike_,
-        uint256 sigma_,
-        uint256 tau_
-    ) public pure returns (uint256) {
+    function computeSpotPrice(uint256 reserveX_, uint256 totalLiquidity_, uint256 strike_, uint256 sigma_, uint256 tau_)
+        public
+        pure
+        returns (uint256)
+    {
         // Φ^-1(1 - x/L)
         int256 a = Gaussian.ppf(int256(1 ether - reserveX_.divWadDown(totalLiquidity_)));
         // σ√τ
@@ -77,7 +75,8 @@ library SwapLib {
 
     /// @dev ~y = LKΦ(Φ⁻¹(1-x/L) - σ√τ)
     function computeY(uint256 reserveX_, uint256 liquidity, uint256 strike_, uint256 sigma_, uint256 tau_)
-        public pure
+        public
+        pure
         returns (uint256)
     {
         int256 a = Gaussian.ppf(toInt(1 ether - reserveX_.divWadDown(liquidity)));
@@ -89,7 +88,8 @@ library SwapLib {
 
     /// @dev ~x = L(1 - Φ(Φ⁻¹(y/(LK)) + σ√τ))
     function computeX(uint256 reserveY_, uint256 liquidity, uint256 strike_, uint256 sigma_, uint256 tau_)
-        public pure
+        public
+        pure
         returns (uint256)
     {
         int256 a = Gaussian.ppf(toInt(reserveY_ * 1e36 / (liquidity * strike_)));
@@ -101,7 +101,8 @@ library SwapLib {
 
     /// @dev ~L = x / (1 - Φ(Φ⁻¹(y/(LK)) + σ√τ))
     function computeL(uint256 reserveX_, uint256 liquidity, uint256 sigma_, uint256 prevTau, uint256 newTau)
-        public pure
+        public
+        pure
         returns (uint256)
     {
         int256 a = Gaussian.ppf(toInt(reserveX_ * 1 ether / liquidity));
@@ -173,7 +174,8 @@ library SwapLib {
 
     /// todo: figure out what happens when result of trading function is negative or positive.
     function solveX(uint256 reserveY_, uint256 liquidity, uint256 strike_, uint256 sigma_, uint256 tau_)
-        public pure
+        public
+        pure
         returns (uint256 reserveX_)
     {
         bytes memory args = abi.encode(reserveY_, liquidity, strike_, sigma_, tau_);
@@ -183,7 +185,8 @@ library SwapLib {
     }
 
     function solveY(uint256 reserveX_, uint256 liquidity, uint256 strike_, uint256 sigma_, uint256 tau_)
-        public pure
+        public
+        pure
         returns (uint256 reserveY_)
     {
         bytes memory args = abi.encode(reserveX_, liquidity, strike_, sigma_, tau_);
@@ -193,7 +196,8 @@ library SwapLib {
     }
 
     function solveL(PoolPreCompute memory comp, uint256 initialLiquidity, uint256 reserveY_, uint256 sigma_)
-        public pure
+        public
+        pure
         returns (uint256 liquidity_)
     {
         bytes memory args = abi.encode(comp.reserveInAsset, reserveY_, comp.strike_, sigma_, comp.tau_);
@@ -248,7 +252,8 @@ library SwapLib {
     }
 
     function findRootNewLiquidity(bytes memory args, uint256 initialGuess, uint256 maxIterations, uint256 tolerance)
-        public pure
+        public
+        pure
         returns (uint256 L)
     {
         L = initialGuess;
@@ -275,7 +280,8 @@ library SwapLib {
     }
 
     function findRootNewX(bytes memory args, uint256 initialGuess, uint256 maxIterations, uint256 tolerance)
-        public pure
+        public
+        pure
         returns (uint256 reserveX_)
     {
         reserveX_ = initialGuess;
@@ -301,7 +307,8 @@ library SwapLib {
     }
 
     function findRootNewY(bytes memory args, uint256 initialGuess, uint256 maxIterations, uint256 tolerance)
-        public pure
+        public
+        pure
         returns (uint256 reserveY_)
     {
         reserveY_ = initialGuess;
@@ -365,8 +372,6 @@ library SwapLib {
         return result;
     }
 
-
-
     // function calcSlope(
     //     uint256 reserveX_,
     //     uint256 reserveY_,
@@ -380,26 +385,20 @@ library SwapLib {
     //     if (b_i > 1e18) {
     //         return -1;
     //     }
-        
+
     //     int256 b = Gaussian.ppf(toInt(b_i));
     //     int256 pdf_b = Gaussian.pdf(b);
-        
+
     //     int256 slope = (int256(strike_ * totalLiquidity_) * pdf_b / 1e36);
-        
+
     //     int256 dxdy = computedXdY(reserveX_, newReserveY);
-        
+
     //     return slope + dxdy;
     // }
 
-
-
-    function computedXdY(
-        uint256 reserveX_,
-        uint256 reserveY_
-    ) public pure returns (int256) {
+    function computedXdY(uint256 reserveX_, uint256 reserveY_) public pure returns (int256) {
         return -int256(reserveX_) * 1e18 / int256(reserveY_);
     }
-
 
     /// @dev Casts an unsigned integer to a signed integer, reverting if `x` is too large.
     function toInt(uint256 x) public pure returns (int256) {
