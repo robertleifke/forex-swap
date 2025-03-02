@@ -36,26 +36,25 @@ contract Numo is BaseCustomCurve {
         maturity = _maturity;
     }
 
-    function getHookPermissions() public pure override returns (Hooks.Permissions memory permissions) {
+        function getHookPermissions() public pure virtual override returns (Hooks.Permissions memory permissions) {
         return Hooks.Permissions({
             beforeInitialize: true,
-            afterInitialize: true,
+            afterInitialize: false,
             beforeAddLiquidity: true,
             beforeRemoveLiquidity: true,
-            afterAddLiquidity: true,
-            afterRemoveLiquidity: true,
+            afterAddLiquidity: false,
+            afterRemoveLiquidity: false,
             beforeSwap: true,
-            afterSwap: true,
-            beforeDonate: true,
-            afterDonate: true,
+            afterSwap: false,
+            beforeDonate: false,
+            afterDonate: false,
             beforeSwapReturnDelta: true,
-            afterSwapReturnDelta: true,
-            afterAddLiquidityReturnDelta: true,
-            afterRemoveLiquidityReturnDelta: true
+            afterSwapReturnDelta: false,
+            afterAddLiquidityReturnDelta: false,
+            afterRemoveLiquidityReturnDelta: false
         });
     }
 
-    // TODO: override beforeInitialize
     function prepareInit(
         uint256 priceX,
         uint256 amountX,
