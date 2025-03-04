@@ -11,15 +11,11 @@
   <br />
 </div>
 
-#### Automated market maker for on-chain derivatives
+#### Automated market maker for derivatives on the EVM.
 
 ## Overview
 
-Automated market makers (AMMs) have revolutionized spot markets by bootstrapping liquidity without relying on external price feeds. As the token economy expands, this mechanism has proven invaluable. Yet, no equivalent solution exists for derivatives. Bootstrapping liquidity for derivative markets without established prices is a fundamentally harder problem. As a result, derivative markets are limited to a small subset of tokens. Numo changes this. By leveraging the novelty of AMMs, Numo enables derivative exposure on any token—without requiring a counterparty or oracles. 
-
-### Application 
-
-Numo enables the synethetic exposure of forwards for cross-border lending, payments, and exchange. With Numo, users can lock in an exchange rate for a specific time. The replication of a forward is a combination of long calls and short puts. 
+Automated market makers (AMM) can quickly bootstrap liquidity on any market without external prices. Numo, a specialized AMM is designed to do just that for a host of hedging products such as futures, forwards, and exotic option instruments. A useful application of Numo is hedging FX risk on long-tail currencies where Numo uses option premiums to peg a FX pair to a desired exchange rate (e.g. USD/EUR 1:1.2). Unlocking savings for cross-border lending, payments, and exchange.
 
 ### Advantages 
 
