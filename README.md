@@ -11,7 +11,7 @@
   <br />
 </div>
 
-#### Automated market maker for FX derivatives on the EVM.
+#### Automated market maker for FX derivatives
 
 ## Overview
 
