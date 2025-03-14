@@ -11,11 +11,9 @@
   <br />
 </div>
 
-#### Automated market maker for FX derivatives
-
 ## Overview
 
-Automated market makers (AMM) can quickly bootstrap liquidity on any market without external prices. Numo, a specialized AMM is designed to do just that for a host of hedging products such as futures, forwards, and exotic option instruments. A useful application of Numo is hedging FX risk on long-tail currencies where Numo uses option premiums to peg a FX pair to a desired exchange rate (e.g. USD/EUR 1:1.2). Unlocking savings for cross-border lending, payments, and exchange.
+Numo is an automated, `log-normal` market maker that provides continuous liquidity to onchain FX markets. Automated market makers (AMM) can quickly bootstrap liquidity on any market without external prices. Numo's specialized curve can offer more efficient exchange of FX and market make a variety of derivative products such as futures, forwards, and exotic option instruments. A useful application of Numo is building forward contracts to hedge long-tail FX. Unlocking savings for cross-border lending, payments, and exchange.
 
 ### Advantages 
 
