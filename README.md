@@ -13,11 +13,13 @@
 
 ## Overview
 
-Numo is an automated, `log-normal` market maker that provides continuous liquidity to onchain FX markets. Automated market makers (AMM) can quickly bootstrap liquidity on any market without external prices. Numo's specialized curve can offer more efficient exchange of FX and market make a variety of derivative products such as futures, forwards, and exotic option instruments. A useful application of Numo is building forward contracts to hedge long-tail FX. Unlocking savings for cross-border lending, payments, and exchange.
+Numo is an automated, `log-normal` market maker that provides continuous liquidity to onchain FX markets. Automated market makers (AMM) can quickly bootstrap liquidity on any market without external prices. Numo's specialized curve can offer more efficient exchange of FX and market make a variety of derivative products such as futures, forwards, and exotic option instruments. 
+
+Try it out! Send money from one currency to another at the best rates possible and instantly with [numo.cash](numo.cash). 
 
 ### Advantages 
 
-- ✅ Any derivative exposure
+- ✅ Any FX pair
 - 🌍 Globally accessible
 - 🤝 No reliance on counterparties
 - 🛠️ Customizability 
@@ -92,3 +94,4 @@ git submodule update --init --recursive
 | Unichain Sepolia     | [0x82360b9a2076a09ea8abe2b3e11aed89de3a02d1](https://explorer.celo.org/mainnet/token/0x82360b9a2076a09ea8abe2b3e11aed89de3a02d1 ) |
 
 ---
+
