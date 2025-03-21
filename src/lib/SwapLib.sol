@@ -291,7 +291,6 @@ library SwapLib {
             int256 fx = findX(args, reserveX_);
 
             if (dfx == 0) {
-                // Handle division by zero
                 break;
             }
 
