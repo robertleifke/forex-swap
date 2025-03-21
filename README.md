@@ -39,7 +39,7 @@ where:
 - $x$ and $y$ represent the **reserves scaled by liquidity**.
 - $\mu$, the mean and $\sigma$, the width define the distribution of liquidity.
 
-As liquidity $ L $ increases, **both reserves scale proportionally**, maintaining a **log-normal liquidity distribution**.
+As liquidity $L$ increases, **both reserves scale proportionally**, maintaining a **log-normal liquidity distribution**.
 
 #### Acknowledgements
 
