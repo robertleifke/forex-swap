@@ -44,7 +44,7 @@ Implemented in `computeTradingFunction(...)` with the following parameters:
 
 #### Acknowledgements
 
-The smart contract suite is inspired by Primitive's [RMM](https://github.com/primitivefinance/rmm) implementation and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first proved that any synethic derivative expsoure can be constructed using AMMs without needing a liquid options market. 
+The smart contract suite is inspired by Primitive's Log-Normal [DFMM](https://github.com/primitivefinance/dfmm) implementation and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first proved that any synethic derivative expsoure can be constructed using AMMs without needing a liquid options market. 
 
 
 ## Setup
