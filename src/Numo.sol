@@ -12,28 +12,26 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import "./lib/SwapLib.sol";
 
 /// @title Numo
-/// @notice An hook for replicating calls and puts
+/// @notice A log-normal AMM
 contract Numo is BaseCustomCurve {
     using FixedPointMathLib for uint256;
     using FixedPointMathLib for int256;
 
-    uint256 public sigma;
-    uint256 public maturity;
-    uint256 public strike;
+    uint256 public mean;
+    uint256 public width;
     uint256 public totalLiquidity;
-    uint256 public lastImpliedPrice;
 
     /// @notice Creates a pool
     /// @param _poolManager Uniswap V4 Pool Manager
-    /// @param _sigma Implied volatility
-    /// @param _strike Strike price
-    /// @param _maturity Expiry timestamp
-    constructor(IPoolManager _poolManager, uint256 _sigma, uint256 _strike, uint256 _maturity)
+    /// @param _mean Mean
+    /// @param _width Width
+    /// @param _totalLiquidity Total liquidity
+    constructor(IPoolManager _poolManager, uint256 _mean, uint256 _width)
         BaseCustomCurve(_poolManager)
     {
-        sigma = _sigma;
-        strike = _strike;
-        maturity = _maturity;
+        mean = _mean;
+        width = _width;
+        totalLiquidity = _totalLiquidity;
     }
 
     function getHookPermissions() public pure virtual override returns (Hooks.Permissions memory permissions) {
