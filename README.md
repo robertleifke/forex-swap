@@ -13,7 +13,7 @@
 
 ## Overview
 
-Numo is an automated, `log-normal` market maker that provides continuous liquidity to onchain FX markets. Automated market makers (AMM) can quickly bootstrap liquidity on any market without external prices. Numo's specialized curve can offer more efficient exchange of FX and market make a variety of derivative products such as futures, forwards, and exotic option instruments. 
+Numo is a dynamic, automated market maker that provides continuous liquidity to onchain FX markets. Numo's specialized curve can offer more efficient exchange of FX and market make a variety of derivative products such as futures, forwards, and exotic option instruments without oracles.
 
 Try it out! Send money from one currency to another at the best rates possible and instantly with [numo.cash](numo.cash). 
 
@@ -21,30 +21,29 @@ Try it out! Send money from one currency to another at the best rates possible a
 
 - ✅ Any FX pair
 - 🌍 Globally accessible
-- 🤝 No reliance on counterparties
-- 🛠️ Customizability 
+- 🤝 Instant settlement
 
 ## Architecture
 
-Numo is a Uniswap V4 hook that inherits OpenZeppelin's `BaseCustomCurve` contract from their `uniswap-hooks` library. Thus enabling Numo to interact with the V4 poolmanager for optimal routing and inherit much of their battle tested code without needing use the concentrated liquidity logic. Instead of calling `beforeSwap` directly, Numo.sol implements its custom curve in `_getUnspecifiedAmount` to support the replication of derivatives. Each call and put is repersented as a `ERC-6909` token. 
+Numo is a Uniswap V4 hook that inherits OpenZeppelin's `BaseCustomCurve` contract from their `uniswap-hooks` library. Thus enabling Numo to interact with the V4 poolmanager for optimal routing and inherit much of their battle tested code without needing use the concentrated liquidity logic. 
 
-#### Trading curve
+#### Log-Normal Market Maker
 
-The trading curve in Numo determines the price and behavior of the AMM. Unlike a traditional AMM like in Uniswap V2, Numo implements a log-normal curve to adjust prices dynamically based on volatility (σ), strike (K), and time to maturity (τ). It allows users to swap assets at implied vol-adjusted prices, mimicking an options market.***The formula***:
+A log-normal curve is beter suited for FX over hyperbolic curves implemented by Uniswap as FX exchange rates exhbit log-normal behavior. Instead of overriding `beforeSwap` completey, Numo uses  `_getUnspecifiedAmount` to implement the curve defined as:
 
-<img src="./image/formula.png" alt="Formula" width="300"/>
+$$ \varphi(x, y, L; \mu, \sigma) = \Phi^{-1} \left(\frac{x}{L} \right) + \Phi^{-1} \left(\frac{y}{\mu L} \right) + \sigma $$
 
-Implemented in `computeTradingFunction(...)` with the following parameters:
+where:
+- $ \Phi^{-1} $ is the **inverse Gaussian cumulative distribution function (CDF)**.
+- $ L $ represents the **total liquidity of the pool**.
+- $ x $ and $ y $ represent the **reserves scaled by liquidity**.
+- $\mu$, the mean and $\sigma$, the width define the distribution of liquidity.
 
-- Reserve balances `reserveX`, `reserveY`
-- Liquidity `totalLiquidity`
-- Strike price `strike`
-- Implied volatility `sigma`
-- Time to maturity `tau`
+As liquidity $ L $ increases, **both reserves scale proportionally**, maintaining a **log-normal liquidity distribution**.
 
 #### Acknowledgements
 
-The smart contract suite is inspired by Primitive's Log-Normal [DFMM](https://github.com/primitivefinance/dfmm) implementation and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first proved that any synethic derivative expsoure can be constructed using AMMs without needing a liquid options market. 
+The smart contract suite is inspired by Primitive's Log-Normal [DFMM](https://github.com/primitivefinance/dfmm) implementation and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first showed the relationship between liquidity and the trading curve of an AMM.
 
 
 ## Setup
@@ -91,7 +90,7 @@ git submodule update --init --recursive
 
 | Network  | Factory Address                                       |  
 | -------- | ----------------------------------------------------- | 
-| Unichain Sepolia     | [0x82360b9a2076a09ea8abe2b3e11aed89de3a02d1](https://explorer.celo.org/mainnet/token/0x82360b9a2076a09ea8abe2b3e11aed89de3a02d1 ) |
+| Base     | [0x82360b9a2076a09ea8abe2b3e11aed89de3a02d1](https://explorer.celo.org/mainnet/token/0x82360b9a2076a09ea8abe2b3e11aed89de3a02d1 ) |
 
 ---
 
