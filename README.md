@@ -34,12 +34,12 @@ A log-normal curve is beter suited for FX over hyperbolic curves implemented by 
 $$ \varphi(x, y, L; \mu, \sigma) = \Phi^{-1} \left(\frac{x}{L} \right) + \Phi^{-1} \left(\frac{y}{\mu L} \right) + \sigma $$
 
 where:
-- $\Phi^{-1}$ is the **inverse Gaussian cumulative distribution function (CDF)**.
-- $L$ represents the **total liquidity of the pool**.
-- $x$ and $y$ represent the **reserves scaled by liquidity**.
+- $\Phi^{-1}$ is the **inverse** Gaussian cumulative distribution function (CDF).
+- $L$ represents the total liquidity of the pool.
+- $x$ and $y$ represent the reserves scaled by liquidity.
 - $\mu$, the mean and $\sigma$, the width define the distribution of liquidity.
 
-As liquidity $L$ increases, **both reserves scale proportionally**, maintaining a **log-normal liquidity distribution**.
+As liquidity $L$ increases, both reserves scale proportionally, maintaining a log-normal liquidity distribution.
 
 #### Acknowledgements
 
