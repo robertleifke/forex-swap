@@ -13,9 +13,9 @@
 
 ## Overview
 
-Numo is a dynamic, automated market maker that provides continuous liquidity to onchain FX markets. Numo's specialized curve can offer more efficient exchange of FX and market make a variety of derivative products such as futures, forwards, and exotic option instruments without oracles.
+Numo is a dynamic, automated market maker that provides continuous liquidity to onchain FX markets. Numo's stochastic curve can offer more efficient exchange of FX and market make a variety of derivative products such as futures, forwards, and exotic option instruments without oracles.
 
-Try it out at [numosend.com](numosend.com)! Send money from one currency to another at the best rates  without waiting or amount limits. 
+[Numo Send](numosend.com) is the first application built on Numo, enabling global peer-to-peer payments. Send money from one currency to another at the best rates with no banks.
 
 ### Advantages 
 
