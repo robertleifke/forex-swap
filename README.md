@@ -13,12 +13,12 @@
 
 
 <div align="center">
-<a href="https://numosend.com">Numo</a> enables global peer-to-peer payments.
+<p style="font-size: 1.3em;"><a href="https://numosend.com">Numo</a> enables global peer-to-peer payments.</p>
 </div>
 
 ## Overview
 
-Numo is a dynamic, automated market maker that provides liquidity to onchain FX markets for instant cross-border payments. Compared to the lastest Uniswap market maker, Numo's log-normal curve can offer more efficient exchange of foregin currencies and market make a variety of derivative products on them such as futures, forwards, and exotic option instruments without oracles.
+Numo is a **dynamic, automated market maker** that provides liquidity to onchain FX markets for **instant cross-border payments**. Compared to the lastest Uniswap market maker, Numo's log-normal curve can offer more efficient exchange of foregin currencies and market make a variety of derivative products on them such as futures, forwards, and exotic option instruments without oracles.
 
 The log-normal curve is implemented in  `_getUnspecifiedAmount` and formalized as:
 
