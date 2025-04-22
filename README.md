@@ -67,12 +67,6 @@ Numo is a Uniswap V4 hook that inherits OpenZeppelin's `BaseCustomCurve` contrac
 - Returns BeforeSwapDelta
 - Returns 0 for fee (fees handled internally)
 
-**7. Emit Swap event**
-- sender: msg.sender
-- zeroForOne: direction of swap
-- amountIn: amountAfterFee
-- amountOut: calculated output amount
-
 #### Acknowledgements
 
 The smart contract suite is inspired by Primitive's Log-Normal [DFMM](https://github.com/primitivefinance/dfmm) implementation and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first showed the relationship between liquidity and the trading curve of an AMM.
