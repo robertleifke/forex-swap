@@ -11,21 +11,28 @@
   <br />
 </div>
 
+
+### [Numo](numosend.com) enables global peer-to-peer payments.
+
 ## Overview
 
-Numo is a dynamic, automated market maker that provides continuous liquidity to onchain FX markets. Numo's stochastic curve can offer more efficient exchange of FX and market make a variety of derivative products such as futures, forwards, and exotic option instruments without oracles.
+Numo is a dynamic, automated market maker that provides liquidity to onchain FX markets for instant cross-border payments. Compared to the lastest Uniswap market maker, Numo's log-normal curve can offer more efficient exchange of foregin currencies and market make a variety of derivative products on them such as futures, forwards, and exotic option instruments without oracles.
 
-[Numo Send](numosend.com) is the first product built on Numo, enabling global peer-to-peer payments. Send money from one currency to another at the best rates with no banks.
+The log-normal curve is implemented in  `_getUnspecifiedAmount` and formalized as:
 
-### Advantages 
+$$ \varphi(x, y, L; \mu, \sigma) = \Phi^{-1} \left(\frac{x}{L} \right) + \Phi^{-1} \left(\frac{y}{\mu L} \right) + \sigma $$
 
-- ✅ Any FX pair
-- 🌍 Globally accessible
-- 🤝 Instant settlement
+where:
+- $\Phi^{-1}$ is the **inverse** Gaussian cumulative distribution function (CDF).
+- $L$ represents the total liquidity of the pool.
+- $x$ and $y$ represent the reserves scaled by liquidity.
+- $\mu$, the mean and $\sigma$, the width define the distribution of liquidity.
+
+As liquidity $L$ increases, both reserves scale proportionally, maintaining a log-normal liquidity distribution.
 
 ## Architecture
 
-Numo is a Uniswap V4 hook that inherits OpenZeppelin's `BaseCustomCurve` contract from their `uniswap-hooks` library. Thus enabling Numo to interact with the V4 poolmanager for optimal routing and inherit much of their battle tested code while using a custom curve. After a user intiates a swap,
+Numo is a Uniswap V4 hook that inherits OpenZeppelin's `BaseCustomCurve` contract from their `uniswap-hooks` library. Thus enabling Numo to interact with the V4 `PoolManager` for optimal routing and inherit much of their battle tested code while using a custom curve. After a user initiates a swap,
 
 **1. amountSpecified (input) -> swapFee applied -> amountAfterFee**
 - Applies 0.01% fee to input amount
@@ -63,21 +70,6 @@ Numo is a Uniswap V4 hook that inherits OpenZeppelin's `BaseCustomCurve` contrac
 - zeroForOne: direction of swap
 - amountIn: amountAfterFee
 - amountOut: calculated output amount
-
-
-#### Log-Normal Market Maker
-
-A log-normal curve is beter suited for FX over others as FX prices exhibit log-normal behavior. Instead of overriding `beforeSwap` completey, Numo uses  `_getUnspecifiedAmount` to implement the curve defined as:
-
-$$ \varphi(x, y, L; \mu, \sigma) = \Phi^{-1} \left(\frac{x}{L} \right) + \Phi^{-1} \left(\frac{y}{\mu L} \right) + \sigma $$
-
-where:
-- $\Phi^{-1}$ is the **inverse** Gaussian cumulative distribution function (CDF).
-- $L$ represents the total liquidity of the pool.
-- $x$ and $y$ represent the reserves scaled by liquidity.
-- $\mu$, the mean and $\sigma$, the width define the distribution of liquidity.
-
-As liquidity $L$ increases, both reserves scale proportionally, maintaining a log-normal liquidity distribution.
 
 #### Acknowledgements
 
