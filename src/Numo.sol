@@ -1,18 +1,18 @@
-// SPDX-License-Identifier: MIT AND GPL-3.0-or-later
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
 import {BaseCustomCurve} from "@uniswap-hooks/base/BaseCustomCurve.sol";
-import {IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
 import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import {Hooks} from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
 import {BalanceDelta} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {BeforeSwapDelta, toBeforeSwapDelta} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
 import "./lib/SwapLib.sol";
 
 /// @title Numo
-/// @notice A log-normal AMM
+/// @notice A log-normal AMM Hook for Uniswap V4
 contract Numo is BaseCustomCurve {
     using FixedPointMathLib for uint256;
     using FixedPointMathLib for int256;
@@ -20,21 +20,23 @@ contract Numo is BaseCustomCurve {
     uint256 public mean;
     uint256 public width;
     uint256 public totalLiquidity;
+    uint256 public reserve0;
+    uint256 public reserve1;
 
-    /// @notice Creates a pool
-    /// @param _poolManager Uniswap V4 Pool Manager
-    /// @param _mean Mean
-    /// @param _width Width
-    /// @param _totalLiquidity Total liquidity
+    uint256 public constant SWAP_FEE_WAD = 1e14; // 0.01%
+
+    event Swap(address indexed sender, bool zeroForOne, uint256 amountIn, uint256 amountOut);
+    event LiquidityAdded(address indexed sender, uint256 amount0, uint256 amount1, uint256 shares);
+    event LiquidityRemoved(address indexed sender, uint256 amount0, uint256 amount1, uint256 shares);
+
     constructor(IPoolManager _poolManager, uint256 _mean, uint256 _width)
         BaseCustomCurve(_poolManager)
     {
         mean = _mean;
         width = _width;
-        totalLiquidity = _totalLiquidity;
     }
 
-    function getHookPermissions() public pure virtual override returns (Hooks.Permissions memory permissions) {
+    function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
             beforeInitialize: true,
             afterInitialize: false,
@@ -53,56 +55,58 @@ contract Numo is BaseCustomCurve {
         });
     }
 
-    
-    /// @notice Get the amount of unspecified amount
-    /// @param params The swap params
-    /// @return unspecifiedAmount The amount of unspecified amount
-    function _getUnspecifiedAmount(IPoolManager.SwapParams calldata params)
-    internal
-    override
-    returns (uint256 unspecifiedAmount)
-{
-    uint256 amountSpecified = params.amountSpecified < 0
-        ? uint256(-params.amountSpecified)
-        : uint256(params.amountSpecified);
+    function _beforeSwap(address sender, PoolKey calldata, IPoolManager.SwapParams calldata params, bytes calldata)
+        internal
+        override
+        returns (bytes4, BeforeSwapDelta, uint24)
+    {
+        uint256 amountSpecified = params.amountSpecified < 0
+            ? uint256(-params.amountSpecified)
+            : uint256(params.amountSpecified);
 
-    (uint256 rX, uint256 rY) = _getReserves(); // Assume you have a way to get reserves (internal function)
+        require(amountSpecified > 0, "ZERO_SWAP_AMOUNT");
 
-    if (params.zeroForOne) {
-        // Selling token0 (rX), buying token1 (rY)
-        unspecifiedAmount = SwapLib.computeAmountOutGivenAmountInX(
-            amountSpecified,
-            rX,
-            rY,
-            totalLiquidity,
-            mean,
-            width
-        );
-    } else {
-        // Selling token1 (rY), buying token0 (rX)
-        unspecifiedAmount = SwapLib.computeAmountOutGivenAmountInY(
-            amountSpecified,
-            rX,
-            rY,
-            totalLiquidity,
-            mean,
-            width
-        );
+        uint256 amountAfterFee = amountSpecified.mulWadDown(1e18 - SWAP_FEE_WAD);
+
+        uint256 localMean = mean;
+        uint256 localWidth = width;
+
+        uint256 amountOut;
+        if (params.zeroForOne) {
+            amountOut = SwapLib.computeAmountOutGivenAmountInX(
+                amountAfterFee, reserve0, reserve1, totalLiquidity, localMean, localWidth
+            );
+            require(amountOut <= reserve1, "INSUFFICIENT_LIQUIDITY_0");
+
+            reserve0 += amountAfterFee;
+            reserve1 -= amountOut;
+        } else {
+            amountOut = SwapLib.computeAmountOutGivenAmountInY(
+                amountAfterFee, reserve0, reserve1, totalLiquidity, localMean, localWidth
+            );
+            require(amountOut <= reserve0, "INSUFFICIENT_LIQUIDITY_1");
+
+            reserve1 += amountAfterFee;
+            reserve0 -= amountOut;
+        }
+
+        BeforeSwapDelta delta = params.zeroForOne
+            ? toBeforeSwapDelta(
+                SafeCast.toInt128(SafeCast.toInt256(amountAfterFee)),
+                SafeCast.toInt128(-SafeCast.toInt256(amountOut))
+            )
+            : toBeforeSwapDelta(
+                SafeCast.toInt128(-SafeCast.toInt256(amountOut)),
+                SafeCast.toInt128(SafeCast.toInt256(amountAfterFee))
+            );
+
+        emit Swap(sender, params.zeroForOne, amountAfterFee, amountOut);
+
+        return (this.beforeSwap.selector, delta, 0);
     }
-}
-
 
     function getSpotPrice() public view returns (uint256) {
-        if (block.timestamp >= maturity) return strike;
-
-        uint256 timeToExpiry = maturity - block.timestamp;
-
-        int256 tradingFunctionValue =
-            SwapLib.computeTradingFunction(totalLiquidity, totalLiquidity, totalLiquidity, strike, sigma, timeToExpiry);
-
-        return SwapLib.computeSpotPrice(totalLiquidity, totalLiquidity, strike, sigma, timeToExpiry).mulWadUp(
-            uint256(tradingFunctionValue)
-        );
+        return SwapLib.computeSpotPrice(reserve0, totalLiquidity, mean, width);
     }
 
     function _getAmountIn(AddLiquidityParams memory params)
@@ -110,13 +114,26 @@ contract Numo is BaseCustomCurve {
         override
         returns (uint256 amount0, uint256 amount1, uint256 shares)
     {
-        if (block.timestamp >= maturity) revert("Expired, Cannot Add Liquidity");
-
         amount0 = params.amount0Desired;
         amount1 = params.amount1Desired;
 
-        shares = SwapLib.computeLGivenX(amount0, totalLiquidity, strike, sigma, maturity - block.timestamp);
+        require(amount0 > 0 || amount1 > 0, "ZERO_LIQUIDITY");
+
+        if (totalLiquidity == 0) {
+            shares = amount0 + amount1.mulWadDown(1e18).divWadDown(mean);
+        } else {
+            uint256 share0 = reserve0 > 0 ? amount0.mulDivDown(totalLiquidity, reserve0) : 0;
+            uint256 share1 = reserve1 > 0 ? amount1.mulDivDown(totalLiquidity, reserve1) : 0;
+            shares = share0 < share1 ? share0 : share1;
+        }
+
+        require(shares > 0, "INSUFFICIENT_SHARES");
+
+        reserve0 += amount0;
+        reserve1 += amount1;
         totalLiquidity += shares;
+
+        emit LiquidityAdded(msg.sender, amount0, amount1, shares);
     }
 
     function _getAmountOut(RemoveLiquidityParams memory params)
@@ -125,24 +142,22 @@ contract Numo is BaseCustomCurve {
         returns (uint256 amount0, uint256 amount1, uint256 shares)
     {
         shares = params.liquidity;
-        amount0 = shares.mulDivDown(totalLiquidity, totalLiquidity + shares);
-        amount1 = shares.mulDivDown(totalLiquidity, totalLiquidity + shares);
+        require(totalLiquidity > 0, "NO_LIQUIDITY");
+        require(shares > 0, "ZERO_SHARES");
+
+        amount0 = reserve0.mulDivDown(shares, totalLiquidity);
+        amount1 = reserve1.mulDivDown(shares, totalLiquidity);
+
+        require(amount0 <= reserve0 && amount1 <= reserve1, "INSUFFICIENT_RESERVES");
+
+        reserve0 -= amount0;
+        reserve1 -= amount1;
         totalLiquidity -= shares;
+
+        emit LiquidityRemoved(msg.sender, amount0, amount1, shares);
     }
 
-    function _mint(AddLiquidityParams memory params, BalanceDelta callerDelta, BalanceDelta feesAccrued, uint256 shares)
-        internal
-        override
-    {
-        totalLiquidity += shares;
-    }
+    function _mint(AddLiquidityParams memory, BalanceDelta, BalanceDelta, uint256) internal override {}
 
-    function _burn(
-        RemoveLiquidityParams memory params,
-        BalanceDelta callerDelta,
-        BalanceDelta feesAccrued,
-        uint256 shares
-    ) internal override {
-        totalLiquidity -= shares;
-    }
+    function _burn(RemoveLiquidityParams memory, BalanceDelta, BalanceDelta, uint256) internal override {}
 }
