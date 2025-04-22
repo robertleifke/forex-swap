@@ -15,7 +15,7 @@
 
 Numo is a dynamic, automated market maker that provides continuous liquidity to onchain FX markets. Numo's stochastic curve can offer more efficient exchange of FX and market make a variety of derivative products such as futures, forwards, and exotic option instruments without oracles.
 
-[Numo Send](numosend.com) is the first application built on Numo, enabling global peer-to-peer payments. Send money from one currency to another at the best rates with no banks.
+[Numo Send](numosend.com) is the first product built on Numo, enabling global peer-to-peer payments. Send money from one currency to another at the best rates with no banks.
 
 ### Advantages 
 
@@ -25,11 +25,49 @@ Numo is a dynamic, automated market maker that provides continuous liquidity to 
 
 ## Architecture
 
-Numo is a Uniswap V4 hook that inherits OpenZeppelin's `BaseCustomCurve` contract from their `uniswap-hooks` library. Thus enabling Numo to interact with the V4 poolmanager for optimal routing and inherit much of their battle tested code without needing use the concentrated liquidity logic. 
+Numo is a Uniswap V4 hook that inherits OpenZeppelin's `BaseCustomCurve` contract from their `uniswap-hooks` library. Thus enabling Numo to interact with the V4 poolmanager for optimal routing and inherit much of their battle tested code while using a custom curve. After a user intiates a swap,
+
+**1. amountSpecified (input) -> swapFee applied -> amountAfterFee**
+- Applies 0.01% fee to input amount
+
+**2. Calculate amountOut using SwapLib**
+- For zeroForOne: computeAmountOutGivenAmountInX()
+- For oneForZero: computeAmountOutGivenAmountInY()
+- Uses log-normal curve formula to determine output amount
+
+**3. Validate amountOut**
+- Ensure sufficient liquidity exists
+- Check amountOut <= reserves
+
+**4. Update reserves**
+- For zeroForOne:
+  - reserve0 += amountAfterFee  // Increase token0 reserves
+  - reserve1 -= amountOut       // Decrease token1 reserves
+- For oneForZero:
+  - reserve1 += amountAfterFee  // Increase token1 reserves  
+  - reserve0 -= amountOut       // Decrease token0 reserves
+
+**5. Create BeforeSwapDelta**
+- For zeroForOne:
+  - delta = (amountAfterFee, -amountOut)
+- For oneForZero:  
+  - delta = (-amountOut, amountAfterFee)
+
+**6. Return to PoolManager**
+- Returns beforeSwap selector
+- Returns BeforeSwapDelta
+- Returns 0 for fee (fees handled internally)
+
+**7. Emit Swap event**
+- sender: msg.sender
+- zeroForOne: direction of swap
+- amountIn: amountAfterFee
+- amountOut: calculated output amount
+
 
 #### Log-Normal Market Maker
 
-A log-normal curve is beter suited for FX over hyperbolic curves implemented by Uniswap as FX exchange rates exhbit log-normal behavior. Instead of overriding `beforeSwap` completey, Numo uses  `_getUnspecifiedAmount` to implement the curve defined as:
+A log-normal curve is beter suited for FX over others as FX prices exhibit log-normal behavior. Instead of overriding `beforeSwap` completey, Numo uses  `_getUnspecifiedAmount` to implement the curve defined as:
 
 $$ \varphi(x, y, L; \mu, \sigma) = \Phi^{-1} \left(\frac{x}{L} \right) + \Phi^{-1} \left(\frac{y}{\mu L} \right) + \sigma $$
 
