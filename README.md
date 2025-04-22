@@ -12,7 +12,9 @@
 </div>
 
 
-### [Numo](numosend.com) enables global peer-to-peer payments.
+<div align="center">
+<a href="https://numosend.com">Numo</a> enables global peer-to-peer payments.
+</div>
 
 ## Overview
 
