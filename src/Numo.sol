@@ -53,40 +53,44 @@ contract Numo is BaseCustomCurve {
         });
     }
 
-    function prepareInit(uint256 priceX, uint256 amountX, uint256 strike_, uint256 sigma_)
-        public
-        view
-        returns (uint256 totalLiquidity_, uint256 amountY)
-    {
-        uint256 tau_ = SwapLib.computeTauWadYears(maturity - block.timestamp);
-
-        SwapLib.PoolPreCompute memory comp =
-            SwapLib.PoolPreCompute({reserveInAsset: amountX, strike_: strike_, tau_: tau_});
-
-        uint256 initialLiquidity = SwapLib.computeLGivenX(amountX, totalLiquidity, strike_, sigma_, tau_);
-
-        amountY = SwapLib.computeY(amountX, initialLiquidity, strike_, sigma_, tau_);
-
-        totalLiquidity_ = SwapLib.solveL(comp, initialLiquidity, amountY, sigma_);
-    }
-
+    
     /// @notice Get the amount of unspecified amount
     /// @param params The swap params
     /// @return unspecifiedAmount The amount of unspecified amount
     function _getUnspecifiedAmount(IPoolManager.SwapParams calldata params)
-        internal
-        override
-        returns (uint256 unspecifiedAmount)
-    {
-        if (block.timestamp >= maturity) {
-            unspecifiedAmount = uint256(params.amountSpecified > 0 ? params.amountSpecified : -params.amountSpecified)
-                .mulWadDown(strike);
-        } else {
-            uint256 impliedPrice = getSpotPrice();
-            unspecifiedAmount = uint256(params.amountSpecified > 0 ? params.amountSpecified : -params.amountSpecified)
-                .mulWadDown(impliedPrice);
-        }
+    internal
+    override
+    returns (uint256 unspecifiedAmount)
+{
+    uint256 amountSpecified = params.amountSpecified < 0
+        ? uint256(-params.amountSpecified)
+        : uint256(params.amountSpecified);
+
+    (uint256 rX, uint256 rY) = _getReserves(); // Assume you have a way to get reserves (internal function)
+
+    if (params.zeroForOne) {
+        // Selling token0 (rX), buying token1 (rY)
+        unspecifiedAmount = SwapLib.computeAmountOutGivenAmountInX(
+            amountSpecified,
+            rX,
+            rY,
+            totalLiquidity,
+            mean,
+            width
+        );
+    } else {
+        // Selling token1 (rY), buying token0 (rX)
+        unspecifiedAmount = SwapLib.computeAmountOutGivenAmountInY(
+            amountSpecified,
+            rX,
+            rY,
+            totalLiquidity,
+            mean,
+            width
+        );
     }
+}
+
 
     function getSpotPrice() public view returns (uint256) {
         if (block.timestamp >= maturity) return strike;
