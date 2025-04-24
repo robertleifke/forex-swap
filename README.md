@@ -13,7 +13,7 @@
 
 
 <div align="center">
-<p style="font-size: 1.3em;"><a href="https://numosend.com">Numo</a> enables global peer-to-peer payments.</p>
+<p style="font-size: 1.3em;"><a href="https://numosend.com">Numo</a> enables instant global payments.</p>
 </div>
 
 ## Overview

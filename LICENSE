@@ -1,21 +1,56 @@
-MIT License
+# Business Source License 1.1
 
-Copyright (c) 2023 saucepoint
+**License text copyright (c) 2025 Numo Technologies Inc.**  
+"Business Source License" is a trademark of MariaDB Corporation Ab.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+---
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+## Parameters
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+- **Licensor**: Numo Technologies Inc.  
+- **Licensed Work**: *Numo Market Maker*  
+  The Licensed Work is (c) 2025 Numo Technologies Inc.  
+- **Change Date**: The earlier of May 1, 2028 or the fourth anniversary of the first public distribution of this version.  
+- **Change License**: GNU General Public License v2.0 or later  
+- **Additional Use Grant**: None  
+
+---
+
+## Terms
+
+The Licensor hereby grants you the right to copy, modify, create derivative works, redistribute, and make **non-production use** of the Licensed Work.  
+If you wish to use the Licensed Work in production, you must obtain a **commercial license** from the Licensor or its authorized resellers.
+
+Effective on the **Change Date**, or the fourth anniversary of the first public distribution of a specific version of the Licensed Work (whichever comes first), the Licensed Work will be made available under the **GNU General Public License v2.0 or later**, and the rights granted above will terminate.
+
+You must:
+- Conspicuously display this License on each original or modified copy of the Licensed Work.
+- Ensure this License applies to all copies and derivative works.
+- Stop using the Licensed Work if your use violates this License.
+
+This License does **not** grant any rights to the trademarks or logos of the Licensor or its affiliates.
+
+> **Disclaimer**:  
+> TO THE EXTENT PERMITTED BY APPLICABLE LAW, THE LICENSED WORK IS PROVIDED ON AN "AS IS" BASIS.  
+> LICENSOR DISCLAIMS ALL WARRANTIES AND CONDITIONS, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO  
+> WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, NON-INFRINGEMENT, AND TITLE.
+
+---
+
+## Covenants of Licensor
+
+In exchange for using the "Business Source License" name and text, the Licensor agrees:
+
+1. To specify **GPL v2.0 or later** as the Change License, or a license compatible with it.
+2. To specify an Additional Use Grant or explicitly state "None".
+3. To specify a Change Date.
+4. **Not** to otherwise modify this License.
+
+---
+
+## Notice
+
+This License is **not an Open Source license**.  
+However, the Licensed Work **will become open source** on the Change Date as stated above.
+
+You may reuse this license text in your own projects under the terms permitted by MariaDB Corporation Ab.
