@@ -12,7 +12,7 @@ import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
 import "./lib/SwapLib.sol";
 
 /// @title Numo
-/// @notice A log-normal AMM Hook for Uniswap V4
+/// @notice A log-normal AMM
 contract Numo is BaseCustomCurve {
     using FixedPointMathLib for uint256;
     using FixedPointMathLib for int256;
