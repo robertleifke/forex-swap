@@ -8,7 +8,6 @@ import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
 
 contract NumoTest is Test {
     Numo numo;
-    MockPoolManager poolManager;
 
     address user = address(0xBEEF);
 
