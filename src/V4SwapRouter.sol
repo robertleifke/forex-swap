@@ -7,7 +7,7 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {Lock} from "./base/Lock.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
-/// @title Router for Uniswap v4 Trades
+/// @title Router for Uniswap v4 swaps
 contract V4SwapRouter is V4Router, Lock {
     constructor(
         IPoolManager _poolManager
