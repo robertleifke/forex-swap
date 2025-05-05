@@ -18,26 +18,49 @@ contract NumoSetup is PoolSetup {
     Currency public currency1;
     PoolKey public poolKey;
 
-    function _setUpNumo(
-        address _liquidityProvider,
-        uint256 _mean,
-        uint256 _width,
-        IPoolManager _manager,
-        IHooks _hooks
-    ) internal {
-        address _owner = makeAddr("owner");
+    function _setUpNumo(address liquidityProvider) internal {
         _deployPoolManager();
         _deployRouters();
         _deployPosm();
-        (currency0, currency1) = _deployAndMintTokens(_liquidityProvider, 100_000e6);
-        vm.startPrank(_liquidityProvider);
+
+        (currency0, currency1) = _deployAndMintTokens(liquidityProvider, 100_000e6);
+
+        vm.startPrank(liquidityProvider);
         _setTokenApprovalForRouters(currency0);
         _setTokenApprovalForRouters(currency1);
         vm.stopPrank();
-        
+
+        uint256 mean = 1e18;
+        uint256 width = 1e17;
+        numo = new Numo(manager, mean, width);
+
         uint160 flags = uint160(
-            Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG | Hooks.BEFORE_INITIALIZE_FLAG
-                | Hooks.BEFORE_DONATE_FLAG
+            Hooks.BEFORE_SWAP_FLAG |
+            Hooks.BEFORE_ADD_LIQUIDITY_FLAG |
+            Hooks.BEFORE_INITIALIZE_FLAG
+        );
+
+        address hookAddress = HookMiner.findHookAddress(address(numo), flags);
+
+        poolKey = PoolKey({
+            currency0: currency0,
+            currency1: currency1,
+            fee: 0,
+            tickSpacing: 1,
+            hooks: IHooks(hookAddress)
+        });
+
+        uint160 sqrtPriceX96 = 2**96; // price = 1 in Q64.96
+        vm.prank(liquidityProvider);
+        manager.initialize(poolKey, sqrtPriceX96);
+
+        _provisionLiquidity(
+            sqrtPriceX96,
+            poolKey.tickSpacing,
+            poolKey,
+            liquidityProvider,
+            1000e6,
+            1000e6
         );
     }
 }

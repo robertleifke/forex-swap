@@ -1,91 +1,77 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.0;
 
-import "forge-std/Test.sol";
-import {Numo} from "src/Numo.sol";
-import {Hooks} from "v4-core/src/libraries/Hooks.sol";
+import {Numo} from "../src/Numo.sol";
+import {NumoSetup} from "./utils/NumoSetup.sol";
 import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
+import {PoolKey} from "v4-core/src/types/PoolKey.sol";
+import {Currency} from "v4-core/src/types/Currency.sol";
+import {V4SwapRouter} from "../src/V4SwapRouter.sol";
+import {Test} from "forge-std/Test.sol";
 
-contract NumoTest is Test {
-    Numo numo;
+contract NumoTest is Test, NumoSetup {
+    address public liquidityProvider;
+    address public user;
 
-    address user = address(0xBEEF);
+    function setUp() public override {
+        liquidityProvider = makeAddr("liquidityProvider");
+        user = makeAddr("user");
+        super.setUp();
+        _setUpNumo(liquidityProvider);
 
-    function setUp() public {
-        poolManager = new MockPoolManager();
-        numo = new Numo(IPoolManager(address(poolManager)), 1e18, 0.1e18); // mean=1, width=0.1
-    }
-
-    function testAddLiquidity() public {
-        vm.prank(user);
-        (uint256 amount0, uint256 amount1, uint256 shares) = numo._getAmountIn(
-            Numo.AddLiquidityParams(1000e18, 1000e18, 0, 0)
+        // Mint tokens for user and approve router
+        (address token0, address token1) = (
+            Currency.unwrap(currency0),
+            Currency.unwrap(currency1)
         );
 
-        assertGt(shares, 0);
-        assertEq(numo.totalLiquidity(), shares);
-        assertEq(numo.reserve0(), amount0);
-        assertEq(numo.reserve1(), amount1);
+        vm.startPrank(user);
+        IERC20(token0).approve(address(swapRouter), type(uint256).max);
+        IERC20(token1).approve(address(swapRouter), type(uint256).max);
+        MockERC20(token0).mint(user, 10_000e6);
+        MockERC20(token1).mint(user, 10_000e6);
+        vm.stopPrank();
     }
 
-    function testRemoveLiquidity() public {
-        vm.startPrank(user);
-        numo._getAmountIn(Numo.AddLiquidityParams(1000e18, 1000e18, 0, 0));
-        vm.stopPrank();
-
-        uint256 prevLiquidity = numo.totalLiquidity();
+    function testSwapZeroForOne() public {
+        uint256 amountIn = 1000e6;
 
         vm.prank(user);
-        (uint256 amount0, uint256 amount1, uint256 shares) = numo._getAmountOut(
-            Numo.RemoveLiquidityParams(prevLiquidity)
-        );
-
-        assertEq(numo.reserve0(), 0);
-        assertEq(numo.reserve1(), 0);
-        assertEq(numo.totalLiquidity(), 0);
-    }
-
-    function testSimpleSwapZeroForOne() public {
-        vm.startPrank(user);
-        numo._getAmountIn(Numo.AddLiquidityParams(1000e18, 1000e18, 0, 0));
-        vm.stopPrank();
-
-        vm.prank(user);
-        (,,uint24 fee) = numo._beforeSwap(user, PoolKey({
-            currency0: IPoolManager.Currency.wrap(address(0)),
-            currency1: IPoolManager.Currency.wrap(address(1)),
-            fee: 0,
-            tickSpacing: 1
-        }), IPoolManager.SwapParams({
+        swapRouter.swap({
+            poolKey: poolKey,
             zeroForOne: true,
-            amountSpecified: int256(10e18),
-            sqrtPriceLimitX96: 0
-        }), "");
+            amountSpecified: int256(amountIn),
+            sqrtPriceLimitX96: 0,
+            recipient: user,
+            deadline: block.timestamp + 1,
+            refundTo: user
+        });
 
-        assertEq(fee, 0);
-        assertGt(numo.reserve0(), 1000e18);
-        assertLt(numo.reserve1(), 1000e18);
+        assertLt(IERC20(Currency.unwrap(currency0)).balanceOf(user), 10_000e6);
+        assertGt(IERC20(Currency.unwrap(currency1)).balanceOf(user), 10_000e6);
     }
 
-    function testSimpleSwapOneForZero() public {
-        vm.startPrank(user);
-        numo._getAmountIn(Numo.AddLiquidityParams(1000e18, 1000e18, 0, 0));
-        vm.stopPrank();
+    function testSwapOneForZero() public {
+        uint256 amountIn = 1000e6;
 
         vm.prank(user);
-        (,,uint24 fee) = numo._beforeSwap(user, PoolKey({
-            currency0: IPoolManager.Currency.wrap(address(0)),
-            currency1: IPoolManager.Currency.wrap(address(1)),
-            fee: 0,
-            tickSpacing: 1
-        }), IPoolManager.SwapParams({
+        swapRouter.swap({
+            poolKey: poolKey,
             zeroForOne: false,
-            amountSpecified: int256(10e18),
-            sqrtPriceLimitX96: 0
-        }), "");
+            amountSpecified: int256(amountIn),
+            sqrtPriceLimitX96: 0,
+            recipient: user,
+            deadline: block.timestamp + 1,
+            refundTo: user
+        });
 
-        assertEq(fee, 0);
-        assertGt(numo.reserve1(), 1000e18);
-        assertLt(numo.reserve0(), 1000e18);
+        assertLt(IERC20(Currency.unwrap(currency1)).balanceOf(user), 10_000e6);
+        assertGt(IERC20(Currency.unwrap(currency0)).balanceOf(user), 10_000e6);
+    }
+
+    function testLiquidityWasProvisioned() public {
+        assertGt(numo.totalLiquidity(), 0);
+        assertGt(numo.reserve0(), 0);
+        assertGt(numo.reserve1(), 0);
     }
 }

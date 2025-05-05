@@ -24,15 +24,10 @@ import {LiquidityAmounts} from "@uniswap/v4-core/test/utils/LiquidityAmounts.sol
 contract PoolSetup is DeployPermit2 {
     using EasyPosm for IPositionManager;
 
-    // Global variables
     IPoolManager public manager;
     IPositionManager public posm;
     PoolModifyLiquidityTest public lpRouter;
     V4SwapRouter public swapRouter;
-
-    // -----------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------
 
     function _initPool(
         Currency currency0,
@@ -138,7 +133,6 @@ contract PoolSetup is DeployPermit2 {
     function _setTokenApprovalForRouters(
         Currency currency0
     ) internal {
-        // approve the tokens to the routers
         IERC20 token0 = IERC20(Currency.unwrap(currency0));
         token0.approve(address(lpRouter), type(uint256).max);
         token0.approve(address(swapRouter), type(uint256).max);
