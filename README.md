@@ -34,7 +34,11 @@ As liquidity $L$ increases, both reserves scale proportionally, maintaining a lo
 
 ## Architecture
 
-Numo is a Uniswap V4 hook that inherits OpenZeppelin's `BaseCustomCurve` contract from their `uniswap-hooks` library. Thus enabling Numo to interact with the V4 `PoolManager` for optimal routing and inherit much of their battle tested code while using a custom curve. After a user initiates a swap,
+Numo is a Uniswap V4 hook that inherits OpenZeppelin's `BaseCustomCurve` contract from their `uniswap-hooks` library. Thus enabling Numo to interact with the V4 `PoolManager` for optimal routing and inherit much of their battle tested code while using a custom curve. 
+
+### Swap Flow
+
+![Swap Flow Diagram](./image/diagram.png)
 
 **1. amountSpecified (input) -> swapFee applied -> amountAfterFee**
 - Applies 0.01% fee to input amount
