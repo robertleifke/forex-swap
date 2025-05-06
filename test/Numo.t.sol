@@ -3,9 +3,9 @@ pragma solidity ^0.8.0;
 
 import {Numo} from "../src/Numo.sol";
 import {NumoSetup} from "./utils/NumoSetup.sol";
-import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
-import {PoolKey} from "v4-core/src/types/PoolKey.sol";
-import {Currency} from "v4-core/src/types/Currency.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {PoolKey} from "@uniswap/v4-core/src/types/PoolKey.sol";
+import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {V4SwapRouter} from "../src/V4SwapRouter.sol";
 import {Test} from "forge-std/Test.sol";
 
