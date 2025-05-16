@@ -21,7 +21,7 @@
 	url = https://github.com/uniswap/v4-periphery
 [submodule "lib/uniswap-hooks"]
 	path = lib/uniswap-hooks
-	url = https://github.com/OpenZeppelin/uniswap-hooks
+	url = https://github.com/uniswap/uniswap-hooks
 [submodule "lib/v4-core"]
 	path = lib/v4-core
 	url = https://github.com/uniswap/v4-core

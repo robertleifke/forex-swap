@@ -2,16 +2,14 @@
 pragma solidity ^0.8.24;
 
 import {V4Router} from "lib/v4-periphery/src/V4Router.sol";
-import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {IPoolManager} from "@uniswap/v4-core/interfaces/IPoolManager.sol";
+import {Currency} from "@uniswap/v4-core/types/Currency.sol";
 import {Lock} from "./base/Lock.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 /// @title Router for Uniswap v4 swaps
 contract V4SwapRouter is V4Router, Lock {
-    constructor(
-        IPoolManager _poolManager
-    ) V4Router(_poolManager) {}
+    constructor(IPoolManager _poolManager) V4Router(_poolManager) {}
 
     /**
      * @notice Implementation of DeltaResolver's payment method
@@ -32,9 +30,7 @@ contract V4SwapRouter is V4Router, Lock {
         return _getLocker();
     }
 
-    function execute(
-        bytes calldata unlockData
-    ) external payable isNotLocked {
+    function execute(bytes calldata unlockData) external payable isNotLocked {
         _executeActions(unlockData);
     }
 }

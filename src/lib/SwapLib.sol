@@ -12,13 +12,11 @@ library SwapLib {
                               Trading Core
     //////////////////////////////////////////////////////////////*/
 
-    function computeTradingFunction(
-        uint256 rX,
-        uint256 rY,
-        uint256 L,
-        uint256 mean,
-        uint256 width
-    ) public pure returns (int256) {
+    function computeTradingFunction(uint256 rX, uint256 rY, uint256 L, uint256 mean, uint256 width)
+        public
+        pure
+        returns (int256)
+    {
         uint256 a_i = rX.divWadDown(L);
         uint256 b_i = rY.divWadDown(mean.mulWadDown(L));
 
@@ -28,12 +26,7 @@ library SwapLib {
         return a + b + int256(width);
     }
 
-    function computeSpotPrice(
-        uint256 rX,
-        uint256 L,
-        uint256 mean,
-        uint256 width
-    ) public pure returns (uint256) {
+    function computeSpotPrice(uint256 rX, uint256 L, uint256 mean, uint256 width) public pure returns (uint256) {
         int256 a = Gaussian.ppf(int256(1 ether - rX.divWadDown(L)));
         int256 exp = (a.mul(int256(width))).expWad();
         return mean.mulWadUp(uint256(exp));
@@ -43,23 +36,13 @@ library SwapLib {
                         Reserve Conversions
     //////////////////////////////////////////////////////////////*/
 
-    function computeYGivenX(
-        uint256 rX,
-        uint256 L,
-        uint256 mean,
-        uint256 width
-    ) public pure returns (uint256 rY) {
+    function computeYGivenX(uint256 rX, uint256 L, uint256 mean, uint256 width) public pure returns (uint256 rY) {
         int256 a = Gaussian.ppf(int256(1 ether - rX.divWadDown(L)));
         int256 c = Gaussian.cdf(a - int256(width));
         rY = mean.mulWadDown(L).mulWadDown(uint256(c));
     }
 
-    function computeXGivenY(
-        uint256 rY,
-        uint256 L,
-        uint256 mean,
-        uint256 width
-    ) public pure returns (uint256 rX) {
+    function computeXGivenY(uint256 rY, uint256 L, uint256 mean, uint256 width) public pure returns (uint256 rX) {
         int256 a = Gaussian.ppf(int256(rY.divWadDown(mean.mulWadDown(L))));
         int256 c = Gaussian.cdf(a + int256(width));
         rX = L.mulWadDown(1 ether - uint256(c));
@@ -132,29 +115,25 @@ library SwapLib {
     //////////////////////////////////////////////////////////////*/
 
     function findX(bytes memory data, uint256 rX) public pure returns (int256) {
-        (uint256 rY, uint256 L, uint256 mean, uint256 width) =
-            abi.decode(data, (uint256, uint256, uint256, uint256));
+        (uint256 rY, uint256 L, uint256 mean, uint256 width) = abi.decode(data, (uint256, uint256, uint256, uint256));
         return computeTradingFunction(rX, rY, L, mean, width);
     }
 
     function findY(bytes memory data, uint256 rY) public pure returns (int256) {
-        (uint256 rX, uint256 L, uint256 mean, uint256 width) =
-            abi.decode(data, (uint256, uint256, uint256, uint256));
+        (uint256 rX, uint256 L, uint256 mean, uint256 width) = abi.decode(data, (uint256, uint256, uint256, uint256));
         return computeTradingFunction(rX, rY, L, mean, width);
     }
 
     function findL(bytes memory data, uint256 L) public pure returns (int256) {
-        (uint256 rX, uint256 rY, uint256 mean, uint256 width) =
-            abi.decode(data, (uint256, uint256, uint256, uint256));
+        (uint256 rX, uint256 rY, uint256 mean, uint256 width) = abi.decode(data, (uint256, uint256, uint256, uint256));
         return computeTradingFunction(rX, rY, L, mean, width);
     }
 
-    function findRootNewX(
-        bytes memory args,
-        uint256 initialGuess,
-        uint256 maxIterations,
-        uint256 tolerance
-    ) public pure returns (uint256 root) {
+    function findRootNewX(bytes memory args, uint256 initialGuess, uint256 maxIterations, uint256 tolerance)
+        public
+        pure
+        returns (uint256 root)
+    {
         root = initialGuess;
         for (uint256 i = 0; i < maxIterations; i++) {
             int256 fValue = findX(args, root);
@@ -169,12 +148,11 @@ library SwapLib {
         }
     }
 
-    function findRootNewY(
-        bytes memory args,
-        uint256 initialGuess,
-        uint256 maxIterations,
-        uint256 tolerance
-    ) public pure returns (uint256 root) {
+    function findRootNewY(bytes memory args, uint256 initialGuess, uint256 maxIterations, uint256 tolerance)
+        public
+        pure
+        returns (uint256 root)
+    {
         root = initialGuess;
         for (uint256 i = 0; i < maxIterations; i++) {
             int256 fValue = findY(args, root);
@@ -189,12 +167,11 @@ library SwapLib {
         }
     }
 
-    function findRootNewLiquidity(
-        bytes memory args,
-        uint256 initialGuess,
-        uint256 maxIterations,
-        uint256 tolerance
-    ) public pure returns (uint256 root) {
+    function findRootNewLiquidity(bytes memory args, uint256 initialGuess, uint256 maxIterations, uint256 tolerance)
+        public
+        pure
+        returns (uint256 root)
+    {
         root = initialGuess;
         for (uint256 i = 0; i < maxIterations; i++) {
             int256 fValue = findL(args, root);

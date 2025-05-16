@@ -9,9 +9,7 @@ library Locker {
     // The slot holding the locker state, transiently. bytes32(uint256(keccak256("Locker")) - 1)
     bytes32 constant LOCKER_SLOT = 0x0e87e1788ebd9ed6a7e63c70a374cd3283e41cad601d21fbe27863899ed4a708;
 
-    function set(
-        address locker
-    ) internal {
+    function set(address locker) internal {
         // The locker is always msg.sender or address(0) so does not need to be cleaned
         assembly ("memory-safe") {
             tstore(LOCKER_SLOT, locker)
