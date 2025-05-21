@@ -17,10 +17,9 @@ import "./lib/SwapLib.sol";
 
 /// @title Numo
 /// @notice Log-normal automated market maker
-/// @dev This is a modified version of the Numo contract that allows for the use of a custom curve.
-/// @dev The custom curve is defined by the mean and width parameters.
-/// @dev The mean is the mean of the log-normal distribution.
-/// @dev The width is the width of the log-normal distribution.
+/// @dev The custom curve is defined by the mean and width.
+/// @dev The mean is the exchange rate of the two tokens.
+/// @dev The width is the volatility of the distribution.
 /// @dev The mean and width are used to calculate the spot price of the pool.
 
 contract Numo is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, BaseCustomCurve {
