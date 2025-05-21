@@ -9,6 +9,10 @@ import {BalanceDelta} from "@uniswap/v4-core/types/BalanceDelta.sol";
 import {BeforeSwapDelta, toBeforeSwapDelta} from "@uniswap/v4-core/types/BeforeSwapDelta.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+
 import "./lib/SwapLib.sol";
 
 /// @title Numo
@@ -19,7 +23,7 @@ import "./lib/SwapLib.sol";
 /// @dev The width is the width of the log-normal distribution.
 /// @dev The mean and width are used to calculate the spot price of the pool.
 
-contract Numo is BaseCustomCurve {
+contract Numo is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, BaseCustomCurve {
     using FixedPointMathLib for uint256;
     using FixedPointMathLib for int256;
 
@@ -28,17 +32,29 @@ contract Numo is BaseCustomCurve {
     uint256 public totalLiquidity;
     uint256 public reserve0;
     uint256 public reserve1;
+    uint256 public controllerFee; // defaults to 0
 
-    uint256 public constant SWAP_FEE_WAD = 1e14; // 0.01%
+    uint256 public constant SWAP_FEE_WAD = 1e13; // 0.001% base fee
+
+    bool public paused;
+
+    uint256[50] private __gap;
 
     event Swap(address indexed sender, bool zeroForOne, uint256 amountIn, uint256 amountOut);
     event LiquidityAdded(address indexed sender, uint256 amount0, uint256 amount1, uint256 shares);
     event LiquidityRemoved(address indexed sender, uint256 amount0, uint256 amount1, uint256 shares);
 
-    constructor(IPoolManager _poolManager, uint256 _mean, uint256 _width) BaseCustomCurve(_poolManager) {
+    function initialize(IPoolManager _poolManager, uint256 _mean, uint256 _width) public initializer {
+        __Ownable_init(msg.sender);
+        __UUPSUpgradeable_init(_poolManager);
+        BaseCustomCurve.__BaseCustomCurve_init(_poolManager);
+
         mean = _mean;
         width = _width;
     }
+
+    /// @dev UUPS upgrade authorization
+    function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 
     function getHookPermissions() public pure override returns (Hooks.Permissions memory) {
         return Hooks.Permissions({
