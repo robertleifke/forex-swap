@@ -1,0 +1,17 @@
+{
+  "name": "Foundry Template",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "NomicFoundation.hardhat-solidity",
+        "esbenp.prettier-vscode",
+        "PraneshASP.vscode-solidity-inspector",
+        "tamasfe.even-better-toml"
+      ]
+    }
+  },
+  "postCreateCommand": "bun install"
+}

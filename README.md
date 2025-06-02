@@ -1,9 +1,15 @@
 # Numo
 
-> ⚠️ **WARNING:** This code has not yet been audited. Use at your own risk.
+[gitpod]: https://gitpod.io/#https://github.com/robertleifke/numo2
+[gitpod-badge]: https://img.shields.io/badge/Gitpod-Open%20in%20Gitpod-FFB45B?logo=gitpod
+[gha]: https://github.com/robertleifke/numo2/actions
+[gha-badge]: https://github.com/robertleifke/numo2/actions/workflows/ci.yml/badge.svg
+[foundry]: https://getfoundry.sh/
+[foundry-badge]: https://img.shields.io/badge/Built%20with-Foundry-FFDB1C.svg
+[license]: https://opensource.org/licenses/MIT
+[license-badge]: https://img.shields.io/badge/License-MIT-blue.svg
 
-[![Fuzz Testing](https://github.com/Uniswap/uniswap-v3-core/actions/workflows/fuzz-testing.yml/badge.svg)](https://github.com/numotrade/numo/actions/workflows/fuzz-testing.yml)
-[![npm version](https://img.shields.io/npm/v/@uniswap/v3-core/latest.svg)](https://www.npmjs.com/package/@numotrade/numo/v/latest)
+> ⚠️ **WARNING:** This code has not yet been audited. Use at your own risk.
 
 <div align="center">
   <br />
@@ -11,116 +17,296 @@
   <br />
 </div>
 
-
 <div align="center">
 <p style="font-size: 1.3em;"><a href="https://numosend.com">Numo</a> enables instant global payments.</p>
 </div>
 
 ## Overview
 
-Numo is a **dynamic, automated market maker** that provides liquidity to onchain FX markets for **instant cross-border payments**. Compared to the lastest Uniswap market maker, Numo's log-normal curve can offer more efficient exchange of foregin currencies and market make a variety of derivative products on them such as futures, forwards, and exotic option instruments without oracles.
+Numo is a **statistical, automated market maker** on Uniswap V4 for **instant cross-border payments**. Compared to the
+lastest Uniswap market maker, Numo's log-normal curve, **Φ⁻¹(x/L) + Φ⁻¹(y/L) = k** can offer more efficient exchange of
+foreign currencies and offers the foundation for building market makers that can automatically make a variety of
+derivative products as futures, forwards, and exotic option instruments without oracles.
 
-The log-normal curve is implemented in  `_getUnspecifiedAmount` and formalized as:
+### Key Features
 
-$$ \varphi(x, y, L; \mu, \sigma) = \Phi^{-1} \left(\frac{x}{L} \right) + \Phi^{-1} \left(\frac{y}{\mu L} \right) + \sigma $$
+- **🧮 Advanced Mathematical Pricing**: Uses Beasley-Springer-Moro algorithm for precise inverse normal CDF calculations
+- **⚡ Dynamic Liquidity Tracking**: Maintains total liquidity (L) and invariant constant (k) for optimal pricing
+- **🎯 Log-Normal Fallback**: Includes mean (μ) and volatility (σ) parameters for robust fallback pricing
+- **🛡️ Comprehensive Safety**: Built-in slippage protection, deadline checks, and emergency pause functionality
+- **⛽ Gas Optimized**: Efficient approximations with Newton-Raphson iteration for on-chain execution
 
-where:
-- $\Phi^{-1}$ is the **inverse** Gaussian cumulative distribution function (CDF).
-- $L$ represents the total liquidity of the pool.
-- $x$ and $y$ represent the reserves scaled by liquidity.
-- $\mu$, the mean and $\sigma$, the width define the distribution of liquidity.
+## 🔧 Architecture
 
-As liquidity $L$ increases, both reserves scale proportionally, maintaining a log-normal liquidity distribution.
+### Core Components
 
-## Architecture
+1. **BaseCustomCurve Integration**: Extends Uniswap V4's custom curve framework
+2. **Numo State Management**: Tracks invariant k, total liquidity L, and reserves
+3. **Mathematical Engine**: Implements inverse normal CDF and iterative solving
+4. **Liquidity Management**: Handles minting/burning with proper ratio maintenance
+5. **Swap Execution**: Both exact input/output swaps with Numo pricing
 
-Numo is a Uniswap V4 hook that inherits OpenZeppelin's `BaseCustomCurve` contract from their `uniswap-hooks` library. Thus enabling Numo to interact with the V4 `PoolManager` for optimal routing and inherit much of their battle tested code while using a custom curve. 
+### Mathematical Implementation
 
-### Swap Flow
+```solidity
+// Core Numo invariant
+invariantK = inverseNormalCDF(x/L) + inverseNormalCDF(y/L)
 
-![Swap Flow Diagram](./image/diagram.png)
-
-**1. amountSpecified (input) -> swapFee applied -> amountAfterFee**
-- Applies 0.01% fee to input amount
-
-**2. Calculate amountOut using SwapLib**
-- For zeroForOne: computeAmountOutGivenAmountInX()
-- For oneForZero: computeAmountOutGivenAmountInY()
-- Uses log-normal curve formula to determine output amount
-
-**3. Validate amountOut**
-- Ensure sufficient liquidity exists
-- Check amountOut <= reserves
-
-**4. Update reserves**
-- For zeroForOne:
-  - reserve0 += amountAfterFee  // Increase token0 reserves
-  - reserve1 -= amountOut       // Decrease token1 reserves
-- For oneForZero:
-  - reserve1 += amountAfterFee  // Increase token1 reserves  
-  - reserve0 -= amountOut       // Decrease token0 reserves
-
-**5. Create BeforeSwapDelta**
-- For zeroForOne:
-  - delta = (amountAfterFee, -amountOut)
-- For oneForZero:  
-  - delta = (-amountOut, amountAfterFee)
-
-**6. Return to PoolManager**
-- Returns beforeSwap selector
-- Returns BeforeSwapDelta
-- Returns 0 for fee (fees handled internally)
-
-#### Acknowledgements
-
-The smart contract suite is inspired by Primitive's Log-Normal [DFMM](https://github.com/primitivefinance/dfmm) implementation and the [replicating market makers](https://arxiv.org/abs/2103.14769) paper that first showed the relationship between liquidity and the trading curve of an AMM.
-
-
-## Setup
-
-Requires forge to be installed already.
-
-```
-forge install
+// Configurable parameters
+struct NumoParams {
+    uint256 mu;      // Mean of log-normal distribution (default: 1.0)
+    uint256 sigma;   // Standard deviation/volatility (default: 0.2)
+    uint256 swapFee; // Swap fee percentage (default: 0.3%)
+}
 ```
 
-## Testing
+## Quick Start
 
-```
-forge test -vvv
-```
+Clone and set up the project:
 
-## Coverage
-
-```
-forge coverage --report lcov
-cmd + shift + p -> Coverage Gutters: Display Coverage
+```sh
+$ git clone https://github.com/robertleifke/numo2
+$ cd numo2
+$ bun install
+$ forge build
 ```
 
-## Gas benchmarks
+Deploy the Numo market maker:
 
-### View gas usage
+```solidity
+// Deploy to your Uniswap V4 pool
+IPoolManager poolManager = // ... your pool manager
+Numo numoHook = new Numo(poolManager);
 
+// Initialize with pool key
+PoolKey memory poolKey = PoolKey({
+    currency0: Currency.wrap(address(token0)),
+    currency1: Currency.wrap(address(token1)),
+    fee: 0,
+    tickSpacing: 0,
+    hooks: IHooks(address(numoHook))
+});
+numoHook.initializePool(poolKey);
+
+// Configure Numo parameters
+numoHook.updateNumoParams(
+    1.1e18,  // mu = 1.1 (10% mean premium)
+    2.5e17,  // sigma = 0.25 (25% volatility)
+    5e15     // swapFee = 0.5%
+);
 ```
-forge snapshot --gas-report
+
+## Core Functions
+
+### Liquidity Management
+
+```solidity
+// Add liquidity with slippage protection
+function addLiquidity(
+    uint256 amount0Desired,
+    uint256 amount1Desired,
+    uint256 amount0Min,
+    uint256 amount1Min,
+    address to,
+    uint256 deadline
+) external returns (uint256 shares);
+
+// Remove liquidity
+function removeLiquidity(
+    uint256 shares,
+    uint256 amount0Min,
+    uint256 amount1Min,
+    address to,
+    uint256 deadline
+) external returns (uint256 amount0, uint256 amount1);
 ```
 
-### Compare gas usage
+### Trading Interface
+
+```solidity
+// Execute swaps with Numo pricing
+function swap(
+    uint256 amountIn,
+    uint256 amountOutMin,
+    bool zeroForOne,
+    address to,
+    uint256 deadline
+) external returns (uint256 amountOut);
+
+// Get quote for swap
+function getAmountOut(uint256 amountIn, bool zeroForOne)
+    external view returns (uint256 amountOut);
 ```
-forge snapshot --diff
+
+### State Monitoring
+
+```solidity
+// Get current Numo state
+function getNumoState() external view returns (
+    int256 currentK,           // Current invariant value
+    uint256 currentLiquidity,  // Total liquidity L
+    uint256 reserve0,          // Currency0 reserves
+    uint256 reserve1,          // Currency1 reserves
+    uint256 mu,               // Mean parameter
+    uint256 sigma,            // Volatility parameter
+    uint256 swapFee           // Swap fee
+);
 ```
 
-#### Update dependencies
+## 🧪 Testing
 
-```bash
-git submodule update --init --recursive
+Run comprehensive tests for the Numo implementation:
+
+```sh
+# Run all tests
+$ forge test
+
+# Run with detailed output
+$ forge test -vvv
+
+# Run gas reporting
+$ forge test --gas-report
+
+# Run specific Numo tests
+$ forge test --match-contract Numo -vv
 ```
 
-## Deployments
+Key test scenarios:
 
-| Network  | Factory Address                                       |  
-| -------- | ----------------------------------------------------- | 
-| Base     | [0x82360b9a2076a09ea8abe2b3e11aed89de3a02d1](https://explorer.celo.org/mainnet/token/0x82360b9a2076a09ea8abe2b3e11aed89de3a02d1 ) |
+- Invariant preservation across swaps
+- Liquidity addition/removal mechanics
+- Mathematical precision of inverse normal CDF
+- Edge case handling and error conditions
+- Gas optimization verification
+
+## Mathematical Details
+
+### Inverse Normal CDF Implementation
+
+Numo uses the Beasley-Springer-Moro algorithm for computing Φ⁻¹(u):
+
+```solidity
+function _improvedInverseNormalCDF(uint256 u) internal pure returns (int256) {
+    // Handles edge cases and symmetry
+    // Uses rational approximation for high precision
+    // Bounded to [-6σ, +6σ] for numerical stability
+}
+```
+
+### Newton-Raphson Iteration
+
+For swap calculations, Numo employs iterative solving:
+
+```solidity
+function _solveExactInputNumoWithLiquidity(...) internal view returns (...) {
+    // Initial guess using constant product
+    // Newton-Raphson iteration to solve: Φ⁻¹(x'/L) + Φ⁻¹(y'/L) = k
+    // Convergence threshold: 1e-6 in WAD precision
+    // Maximum iterations: 50
+}
+```
+
+### Fallback Mechanisms
+
+When iterative solving fails, Numo provides robust fallbacks:
+
+```solidity
+function _calculateLogNormalAdjustment(uint256 currentPrice) internal view returns (uint256) {
+    // Adjusts constant product formula using log-normal principles
+    // Based on deviation from mean (μ) and volatility (σ)
+    // Provides smooth price curves even in extreme conditions
+}
+```
+
+## Parameters
+
+### Curve Parameters
+
+- **mu (μ)**: Mean of log-normal distribution (default: 1.0 = no bias)
+- **sigma (σ)**: Volatility parameter (default: 0.2 = 20% volatility)
+- **swapFee**: Trading fee percentage (default: 0.3%, max: 10%)
+
+### Safety Bounds
+
+- **Convergence Threshold**: 1e-6 for numerical precision
+- **Maximum Iterations**: 50 for gas efficiency
+- **CDF Bounds**: [-6σ, +6σ] for mathematical stability
+- **Minimum Liquidity**: 1000 wei to prevent edge cases
+
+## Commands
+
+### Build
+
+```sh
+$ forge build
+```
+
+### Testing
+
+```sh
+# All tests
+$ forge test
+
+# Coverage report
+$ forge coverage
+
+# Gas report
+$ forge test --gas-report
+```
+
+### Deployment
+
+```sh
+# Deploy to Anvil
+$ forge script script/Deploy.s.sol --broadcast --fork-url http://localhost:8545
+
+# Deploy to testnet (requires MNEMONIC env var)
+$ forge script script/Deploy.s.sol --broadcast --fork-url $TESTNET_RPC_URL
+```
+
+### Code Quality
+
+```sh
+# Format contracts
+$ forge fmt
+
+# Lint contracts
+$ bun run lint
+
+# Test coverage with HTML report
+$ bun run test:coverage:report
+```
+
+## Related Projects
+
+- **[Primitive Finance DFMM](https://github.com/primitivefinance/DFMM)** - Original LogNormal AMM inspiration
+- **[Uniswap V4 Core](https://github.com/Uniswap/v4-core)** - Next-generation AMM protocol
+- **[Uniswap V4 Hooks](https://github.com/Uniswap/v4-periphery)** - Hook development framework
+- **[BaseCustomCurve](https://github.com/uniswap-hooks/base-custom-curve)** - Custom curve base implementation
+
+## Mathematical Background
+
+### Research Papers
+
+- **[DFMM: Log-Normal Market Maker](https://github.com/primitivefinance/DFMM/blob/main/src/LogNormal/README.md)** - Log
+  Normal Market Maker from DFMM protocol
+- **[Replicating Market Makers](https://arxiv.org/pdf/2103.14769v1.pdf)** - Replicating Portfolios with CFMMs
+- **[Log-Normal Distribution Properties](https://en.wikipedia.org/wiki/Log-normal_distribution)** - Statistical modeling
+  basis
+
+## AUDITORS: Security Considerations
+
+### Implemented Protections
+
+- **Reentrancy Guards**: All external functions protected
+- **Slippage Protection**: Minimum amount checks on all trades
+- **Deadline Enforcement**: Time-bound transaction execution
+- **Emergency Pause**: Owner can halt operations if needed
+- **Input Validation**: Comprehensive parameter checking
+- **Numerical Stability**: Bounded calculations with overflow protection
+
+## 📄 License
+
+This project is licensed under MIT - see the [LICENSE](LICENSE) file for details.
 
 ---
-

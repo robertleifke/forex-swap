@@ -1,10 +1,8 @@
-@openzeppelin/=lib/openzeppelin-contracts/
-@uniswap/v4-core/=lib/v4-core/
-uniswap-periphery/=lib/v4-periphery/
-forge-gas-snapshot/=lib/v4-periphery/lib/permit2/lib/forge-gas-snapshot/src/
-forge-std/=lib/forge-std/src/
-openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/
-solstat/=lib/solstat/src/
+@openzeppelin/contracts/=node_modules/@openzeppelin/contracts/
+forge-std/=lib/v4-core/lib/forge-std/
+uniswap-hooks/=lib/uniswap-hooks/
+v4-core/=lib/v4-core/
 v4-periphery/=lib/v4-periphery/
-@uniswap-hooks/=lib/uniswap-hooks/src/
-solmate/=lib/solstat/lib/solmate/src/
+openzeppelin/=lib/v4-core/lib/openzeppelin-contracts/contracts/
+solmate/=lib/v4-core/lib/solmate/
+permit2/=lib/v4-periphery/lib/permit2/src/
