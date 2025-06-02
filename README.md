@@ -36,6 +36,17 @@ derivative products as futures, forwards, and exotic option instruments without 
 - **🛡️ Comprehensive Safety**: Built-in slippage protection, deadline checks, and emergency pause functionality
 - **⛽ Gas Optimized**: Efficient approximations with Newton-Raphson iteration for on-chain execution
 
+## Quick Start
+
+Clone and set up the project:
+
+```sh
+$ git clone https://github.com/robertleifke/numo
+$ cd numo
+$ bun install
+$ forge build
+```
+
 ## 🔧 Architecture
 
 ### Core Components
@@ -58,17 +69,6 @@ struct NumoParams {
     uint256 sigma;   // Standard deviation/volatility (default: 0.2)
     uint256 swapFee; // Swap fee percentage (default: 0.3%)
 }
-```
-
-## Quick Start
-
-Clone and set up the project:
-
-```sh
-$ git clone https://github.com/robertleifke/numo2
-$ cd numo2
-$ bun install
-$ forge build
 ```
 
 Deploy the Numo market maker:
