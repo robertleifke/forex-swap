@@ -10,8 +10,8 @@ import { Pausable } from "v4-core/lib/openzeppelin-contracts/contracts/utils/Pau
 import { ReentrancyGuard } from "v4-core/lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 /**
- * @title Numo - LogNormal Market Maker
- * @author Your Name
+ * @title Numo 
+ * @author Robert Leifke
  * @notice A Uniswap V4 hook implementing a log-normal distribution-based market maker
  * @dev This contract implements a custom trading curve based on log-normal distribution principles,
  *      inspired by the DFMM (Dynamic Function Market Maker) protocol by Primitive Finance.
