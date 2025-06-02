@@ -473,10 +473,11 @@ contract Numo is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
             amount1Desired: amount1Desired,
             amount0Min: amount0Min,
             amount1Min: amount1Min,
+            to: msg.sender,
             deadline: deadline,
             tickLower: 0,
             tickUpper: 0,
-            userInputSalt: bytes32(0)
+            salt: bytes32(0)
         });
 
         (amount0, amount1, shares) = _getAmountIn(params);
@@ -517,7 +518,7 @@ contract Numo is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
             deadline: deadline,
             tickLower: 0,
             tickUpper: 0,
-            userInputSalt: bytes32(0)
+            salt: bytes32(0)
         });
 
         (amount0, amount1,) = _getAmountOut(params);

@@ -38,7 +38,7 @@ contract NumoCorrectTest is Test {
     function setUp() public {
         console2.log("=== SETTING UP NUMO TEST ===");
 
-        poolManager = new PoolManager(address(this));
+        poolManager = new PoolManager();
         console2.log("Pool manager deployed");
 
         token0 = new TestERC20(1_000_000e18);

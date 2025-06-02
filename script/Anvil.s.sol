@@ -83,7 +83,7 @@ contract AnvilScript is Script {
     // Helpers
     // -----------------------------------------------------------
     function deployPoolManager() internal returns (IPoolManager) {
-        return IPoolManager(address(new PoolManager(address(0))));
+        return IPoolManager(address(new PoolManager()));
     }
 
     function deployRouters(IPoolManager _manager)
