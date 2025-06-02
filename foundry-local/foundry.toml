@@ -19,9 +19,6 @@
   fuzz = { runs = 10_000 }
   verbosity = 4
 
-[etherscan]
-  mainnet = { key = "${API_KEY_ETHERSCAN}" }
-
 [fmt]
   bracket_spacing = true
   int_types = "long"
@@ -39,7 +36,7 @@
   bnb_smart_chain = "https://bsc-dataseed.binance.org"
   gnosis_chain = "https://rpc.gnosischain.com"
   localhost = "http://localhost:8545"
-  mainnet = "https://eth-mainnet.g.alchemy.com/v2/${API_KEY_ALCHEMY}"
+  mainnet = "https://eth-mainnet.g.alchemy.com/v2/demo"
   optimism = "https://optimism-rpc.publicnode.com"
   polygon = "https://polygon-bor-rpc.publicnode.com"
   sepolia = "https://ethereum-sepolia-rpc.publicnode.com"
