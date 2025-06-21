@@ -18,15 +18,12 @@
 </div>
 
 <div align="center">
-<p style="font-size: 1.3em;"><a href="https://numosend.com">Numo</a> enables instant global payments.</p>
+<p style="font-size: 1.3em;"><a href="https://numosend.com">Numo</a> enables anyone to hedge currency risk.</p>
 </div>
 
 ## Overview
 
-Numo is a **statistical, automated market maker** on Uniswap V4 for **instant cross-border payments**. Compared to the
-lastest Uniswap market maker, Numo's log-normal curve, **Φ⁻¹(x/L) + Φ⁻¹(y/L) = k** can offer more efficient exchange of
-foreign currencies and offers the foundation for building market makers that can automatically make a variety of
-derivative products as futures, forwards, and exotic option instruments without oracles.
+Numo is a derivatives exchange for emerging foreign currencies (FX). Built as a statistical, automated market maker on Uniswap V4, the unique architecture enables instant trading of a popular derivative product, the *synthetic forward*. For microlenders and SMEs, this offers a simple, cheap, and accesible way to manage their FX risk.
 
 ### Key Features
 
