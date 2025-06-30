@@ -23,7 +23,7 @@
 
 ## Overview
 
-Numo is a derivatives exchange for emerging foreign currencies (FX). Built as a statistical, automated market maker on Uniswap V4, the unique architecture enables instant trading of a popular derivative product, the *synthetic forward*. For microlenders and SMEs, this offers a simple, cheap, and accesible way to manage their FX risk.
+Numo is a derivatives exchange on Ethereum for hedging foreign currencies (FX). Built as a statistical, automated market maker on Uniswap V4, the unique architecture enables volatilty markets on spot FX. For microlenders and SMEs, this offers a simple, cheap, and accesible way to manage their FX risk.
 
 ### Key Features
 
