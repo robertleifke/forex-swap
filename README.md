@@ -23,7 +23,7 @@
 
 ## Overview
 
-Numo is an exchange for forwards on Ethereum to enable microlenders to hedge their FX risk. 
+Numo is automated market maker for european options on foreign currencies (FX) on Ethereum. This enables the creation of derivatives instruments such as forwards to allow microlenders to hedge their FX risk. 
 
 ### Key Features
 
