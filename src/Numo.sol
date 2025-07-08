@@ -10,39 +10,16 @@ import { Pausable } from "v4-core/lib/openzeppelin-contracts/contracts/utils/Pau
 import { ReentrancyGuard } from "v4-core/lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 /**
- * @title Numo - LogNormal Market Maker
- * @author Your Name
- * @notice A Uniswap V4 hook implementing a log-normal distribution-based market maker
- * @dev This contract implements a custom trading curve based on log-normal distribution principles,
- *      inspired by the DFMM (Dynamic Function Market Maker) protocol by Primitive Finance.
+ *       _   _ _    _ __  __  ___  
+ *      | \ | | |  | |  \/  |/ _ \ 
+ *      |  \| | |  | | |\/| | | | |
+ *      | |\  | |__| | |  | | |_| |
+ *      |_| \_|\____/|_|  |_|\___/ 
  *
- * ## LogNormal Market Maker Overview
- *
- * The log-normal market maker uses statistical modeling to create more realistic price discovery
- * for assets that exhibit exponential growth patterns and volatility clustering. Unlike traditional
- * constant product (xy=k) AMMs, this implementation incorporates:
- *
- * ### Key Features:
- * 1. **Log-Normal Distribution**: Models asset prices using log-normal distribution properties
- * 2. **Volatility-Aware Pricing**: Incorporates volatility parameters for dynamic pricing
- * 3. **Mean Reversion**: Uses configurable mean parameters for price anchoring
- * 4. **Conservative Implementation**: Uses additive adjustments instead of full exponential pricing
- *
- * ### Mathematical Foundation:
- * The core pricing is based on:
- * - Base calculation using constant product formula
- * - Price adjustments using inverse normal CDF approximations
- * - Volatility terms calculated from distribution width parameters
- * - Conservative bounds to prevent extreme price movements
- *
- * ### Parameters:
- * - `mean`: The mean of the log-normal distribution (price anchor)
- * - `width`: Standard deviation/volatility parameter
- * - `swapFee`: Fee percentage applied to trades
- *
- * ### Usage:
- * This hook can be deployed on Uniswap V4 pools to provide more sophisticated pricing
- * for assets that benefit from statistical modeling rather than simple geometric means.
+ * @title Numo 
+ * @author Robert Leike
+ * @notice https://arxiv.org/pdf/2310.14320
+ * @dev A Uniswap V4 hook implementation of Primitive RMM-01.
  */
 contract Numo is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     // Custom errors
@@ -57,7 +34,6 @@ contract Numo is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     error MinAmountNotMet();
     error MaxAmountExceeded();
 
-    // Events
     event ParametersUpdated(uint256 newMean, uint256 newWidth, uint256 newSwapFee);
     event LiquidityAdded(address indexed provider, uint256 amount0, uint256 amount1, uint256 shares);
     event LiquidityRemoved(address indexed provider, uint256 amount0, uint256 amount1, uint256 shares);
@@ -78,14 +54,12 @@ contract Numo is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         uint256 swapFee; // Swap fee percentage - trading fee applied to swaps (0-10%)
     }
 
-    // Default parameters for log-normal curve
     LogNormalParams public logNormalParams = LogNormalParams({
         mean: 1e18, // Mean = 1.0
         width: 2e17, // Width = 0.2 (20% volatility)
         swapFee: 3e15 // Fee = 0.3%
      });
 
-    // Constants for mathematical calculations
     uint256 private constant WAD = 1e18;
     uint256 private constant HALF_WAD = 5e17;
     uint256 private constant LN_2 = 693_147_180_559_945_309; // ln(2) * 1e18
@@ -97,7 +71,6 @@ contract Numo is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         return value;
     }
 
-    // Required implementation for custom curve logic
     function _getUnspecifiedAmount(IPoolManager.SwapParams calldata swapParams)
         internal
         view
