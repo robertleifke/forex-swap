@@ -23,15 +23,7 @@
 
 ## Overview
 
-Numo is automated market maker for european options on foreign currencies (FX) on Ethereum. This enables the creation of derivatives instruments such as forwards to allow microlenders to hedge their FX risk. 
-
-### Key Features
-
-- **🧮 Advanced Mathematical Pricing**: Uses Beasley-Springer-Moro algorithm for precise inverse normal CDF calculations
-- **⚡ Dynamic Liquidity Tracking**: Maintains total liquidity (L) and invariant constant (k) for optimal pricing
-- **🎯 Log-Normal Fallback**: Includes mean (μ) and volatility (σ) parameters for robust fallback pricing
-- **🛡️ Comprehensive Safety**: Built-in slippage protection, deadline checks, and emergency pause functionality
-- **⛽ Gas Optimized**: Efficient approximations with Newton-Raphson iteration for on-chain execution
+Numo is an automated derivatives engine for foreign exchange. It lets users lock in FX rates using fully collateralized, onchain instruments — with no banks, no counterparties, and no credit risk.
 
 ## Quick Start
 
