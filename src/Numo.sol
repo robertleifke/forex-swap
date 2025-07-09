@@ -49,9 +49,9 @@ contract Numo is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
      * @dev All parameters are scaled by 1e18 (WAD precision)
      */
     struct LogNormalParams {
-        uint256 mean; // Mean of log-normal distribution - acts as price anchor around 1.0
-        uint256 width; // Standard deviation/volatility - controls price sensitivity (0.1-2.0)
-        uint256 swapFee; // Swap fee percentage - trading fee applied to swaps (0-10%)
+        uint256 mean; // exchange rate
+        uint256 width; // volatility 
+        uint256 swapFee; 
     }
 
     LogNormalParams public logNormalParams = LogNormalParams({
