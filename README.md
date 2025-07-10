@@ -23,7 +23,7 @@
 
 ## Overview
 
-Numo is an automated system for portfolio replication to boostrap liquidity for derivatives on foreign exchange. It lets users lock in FX rates using fully collateralized, onchain instruments with no banks, no counterparties, and no credit risk.
+Numo is an automated system for portfolio replication to boostrap liquidity for derivatives on foreign exchange, specifically, letting users lock in FX rates using a fully collateralized, onchain instrument with no banks, no counterparties, and no credit risk.
 
 ## Quick Start
 
