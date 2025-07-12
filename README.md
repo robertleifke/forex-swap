@@ -23,7 +23,7 @@
 
 ## Overview
 
-Numo is an automated system for portfolio replication to boostrap liquidity for derivatives on foreign exchange, specifically, letting users earn yield, lock in a desired FX rate, or speculate using a fully collateralized, onchain instruments with no counterparties, oracles, and credit risk.
+Numo is an automated system for portfolio replication to boostrap liquidity for derivatives on foreign exchange, specifically, letting users earn yield, lock in a desired FX rate, or speculate using fully collateralized, onchain instruments with no counterparties, oracles, and credit risk.
 
 The first derivative product is `numo-yield` which is a covered call that earns income from selling FX call options.
 
