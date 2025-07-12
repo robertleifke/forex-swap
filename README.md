@@ -18,17 +18,12 @@
 </div>
 
 <div align="center">
-<p style="font-size: 1.3em;"><a href="https://numosend.com">Numo</a> enables anyone to hedge currency risk.</p>
+<p style="font-size: 1.3em;"><a href="https://numosend.com">Numo</a> enables microlenders to protect against currency risk.</p>
 </div>
 
 ## Overview
 
-Numo is an automated system for portfolio replication to boostrap liquidity for derivatives on foreign exchange, specifically, letting users earn yield, lock in a desired FX rate, or speculate using fully collateralized, onchain instruments with no counterparties, oracles, and credit risk.
-
-The first derivative product is `numo-yield` which is a covered call that earns income from selling FX call options.
-
-Coming soon, `numo-fwd` which is forward contract that lets microlenders hedge their currency risk by locking in a desired exchange rate.
-
+Numo is an automated system for portfolio replication that boostraps liquidity for foreign exchange (FX) forwards. Thus, letting microlenders lock in a desired FX rate even when traditional forwards are inaccessible.
 ## Quick Start
 
 Clone and set up the project:
