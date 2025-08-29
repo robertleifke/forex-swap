@@ -23,7 +23,8 @@
 
 ## Overview
 
-Numo is an automated system for portfolio replication that boostraps liquidity for foreign exchange (FX) forwards. Thus, letting microlenders lock in a desired FX rate even when traditional forwards are inaccessible.
+Numo is an automated dealer of FX forwards. Inspired by YieldSpace and implemented as Uniswap v4 hook, it time aware curve makes for the efficient exchange of zero coupon bonds on foreign currency from which we quote an implied forward rate. The dealer works without any intermediares, thereby democratizing access to deliverable FX forwards.
+
 ## Quick Start
 
 Clone and set up the project:
