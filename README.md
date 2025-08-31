@@ -1,4 +1,4 @@
-# Numo
+# ForexSwap
 
 [gitpod]: https://gitpod.io/#https://github.com/robertleifke/numo2
 [gitpod-badge]: https://img.shields.io/badge/Gitpod-Open%20in%20Gitpod-FFB45B?logo=gitpod
@@ -11,19 +11,9 @@
 
 > ⚠️ **WARNING:** This code has not yet been audited. Use at your own risk.
 
-<div align="center">
-  <br />
-  <a href="https://optimism.io"><img alt="Numo" src="./image/numo_readme.png" width=600></a>
-  <br />
-</div>
-
-<div align="center">
-<p style="font-size: 1.3em;"><a href="https://numosend.com">Numo</a> enables microlenders to protect against currency risk.</p>
-</div>
-
 ## Overview
 
-Numo is a Uniswap v4 hook implementation of [YieldSpace](https://yield.is/YieldSpace.pdf). It's time aware curve enables efficient trading and price discovery of zero coupon bonds thereby building an onchain yield curve. On foreign currency pairs we can we quote a forward rate directly from this curve, thereby democratizing access to deliverable FX forwards.
+ForexSwap is a Uniswap v4 hook implementation of a [log normal](https://en.wikipedia.org/wiki/Log-normal_distribution) market maker. It's statistical curve makes liquidity provisioning more passive and capital efficient on foreign currency pairs especially during period of high volatilty.
 
 ## Quick Start
 
