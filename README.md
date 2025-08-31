@@ -23,7 +23,7 @@
 
 ## Overview
 
-Numo is an automated dealer of FX forwards. Inspired by YieldSpace and implemented as Uniswap v4 hook, it time aware curve makes for the efficient exchange of zero coupon bonds on foreign currency from which we quote an implied forward rate. The dealer works without any intermediares, thereby democratizing access to deliverable FX forwards.
+Numo is a Uniswap v4 hook implementation of [YieldSpace](https://yield.is/YieldSpace.pdf). It's time aware curve enables efficient trading and price discovery of zero coupon bonds thereby building an onchain yield curve. On foreign currency pairs we can we quote a forward rate directly from this curve, thereby democratizing access to deliverable FX forwards.
 
 ## Quick Start
 
