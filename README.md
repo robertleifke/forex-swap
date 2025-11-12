@@ -26,11 +26,11 @@ $ bun install
 $ forge build
 ```
 
-## Deploy Numo pools
+## Deploy pools
 
 ```solidity
 IPoolManager poolManager = 
-Numo numoHook = new Numo(poolManager);
+Numo numoHook = new ForexSwap(poolManager);
 
 PoolKey memory poolKey = PoolKey({
     currency0: Currency.wrap(address(token0)),
@@ -41,7 +41,7 @@ PoolKey memory poolKey = PoolKey({
 });
 numoHook.initializePool(poolKey);
 
-numoHook.updateNumoParams(
+numoHook.updateForexSwapParams(
     1.1e18,  // mu = 1.1 (10% mean premium)
     2.5e17,  // sigma = 0.25 (25% volatility)
     5e15     // swapFee = 0.5%
@@ -50,7 +50,7 @@ numoHook.updateNumoParams(
 
 ## Testing
 
-Run comprehensive tests for the Numo implementation:
+Run comprehensive tests for the ForexSwap implementation:
 
 ```sh
 # Run all tests
@@ -62,8 +62,8 @@ $ forge test -vvv
 # Run gas reporting
 $ forge test --gas-report
 
-# Run specific Numo tests
-$ forge test --match-contract Numo -vv
+# Run specific ForexSwap tests
+$ forge test --match-contract ForexSwap -vv
 ```
 
 
@@ -81,7 +81,7 @@ function _improvedInverseNormalCDF(uint256 u) internal pure returns (int256) {
 
 ### Newton-Raphson Iteration
 
-For swap calculations, Numo employs iterative solving:
+For swap calculations, ForexSwap employs iterative solving:
 
 ```solidity
 function _solveExactInputNumoWithLiquidity(...) internal view returns (...) {
