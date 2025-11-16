@@ -1,9 +1,9 @@
 # ForexSwap
 
-[gitpod]: https://gitpod.io/#https://github.com/robertleifke/numo2
+[gitpod]: https://gitpod.io/#https://github.com/robertleifke/forex-swap
 [gitpod-badge]: https://img.shields.io/badge/Gitpod-Open%20in%20Gitpod-FFB45B?logo=gitpod
-[gha]: https://github.com/robertleifke/numo2/actions
-[gha-badge]: https://github.com/robertleifke/numo2/actions/workflows/ci.yml/badge.svg
+[gha]: https://github.com/robertleifke/forex-swap/actions
+[gha-badge]: https://github.com/robertleifke/forex-swap/actions/workflows/ci.yml/badge.svg
 [foundry]: https://getfoundry.sh/
 [foundry-badge]: https://img.shields.io/badge/Built%20with-Foundry-FFDB1C.svg
 [license]: https://opensource.org/licenses/MIT
@@ -20,8 +20,8 @@ ForexSwap is a Uniswap v4 hook implementation of a [log normal](https://en.wikip
 Clone and set up the project:
 
 ```sh
-$ git clone https://github.com/robertleifke/numo
-$ cd numo
+$ git clone https://github.com/robertleifke/forex-swap
+$ cd forex-swap
 $ bun install
 $ forge build
 ```
@@ -30,18 +30,18 @@ $ forge build
 
 ```solidity
 IPoolManager poolManager = 
-Numo numoHook = new ForexSwap(poolManager);
+ForexSwap forexSwapHook = new ForexSwap(poolManager);
 
 PoolKey memory poolKey = PoolKey({
     currency0: Currency.wrap(address(token0)),
     currency1: Currency.wrap(address(token1)),
     fee: 0,
     tickSpacing: 0,
-    hooks: IHooks(address(numoHook))
+    hooks: IHooks(address(forexSwapHook))
 });
-numoHook.initializePool(poolKey);
+forexSwapHook.initializePool(poolKey);
 
-numoHook.updateForexSwapParams(
+forexSwapHook.updateForexSwapParams(
     1.1e18,  // mu = 1.1 (10% mean premium)
     2.5e17,  // sigma = 0.25 (25% volatility)
     5e15     // swapFee = 0.5%
@@ -71,7 +71,7 @@ $ forge test --match-contract ForexSwap -vv
 
 ### Inverse Normal CDF Implementation
 
-Numo uses the Beasley-Springer-Moro algorithm for computing Φ⁻¹(u):
+ForexSwap uses the Beasley-Springer-Moro algorithm for computing Φ⁻¹(u):
 
 ```solidity
 function _improvedInverseNormalCDF(uint256 u) internal pure returns (int256) {
@@ -84,7 +84,7 @@ function _improvedInverseNormalCDF(uint256 u) internal pure returns (int256) {
 For swap calculations, ForexSwap employs iterative solving:
 
 ```solidity
-function _solveExactInputNumoWithLiquidity(...) internal view returns (...) {
+function _solveExactInputWithLiquidity(...) internal view returns (...) {
     // Initial guess using constant product
     // Newton-Raphson iteration to solve: Φ⁻¹(x'/L) + Φ⁻¹(y'/L) = k
     // Convergence threshold: 1e-6 in WAD precision
