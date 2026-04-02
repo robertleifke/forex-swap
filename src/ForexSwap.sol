@@ -17,7 +17,7 @@ import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 /**
  * @title Forex Swap
  * @notice Uniswap v4 hook implementing a stateful approximation of Primitive's LogNormal DFMM.
- * @dev The hook owns the market-maker state. Uniswap v4 is used for settlement and flash accounting.
+ * @dev The hook owns the market maker state. Uniswap v4 is used for settlement and flash accounting.
  */
 contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     using PoolIdLibrary for PoolKey;
