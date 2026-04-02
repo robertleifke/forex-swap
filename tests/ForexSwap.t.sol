@@ -36,6 +36,10 @@ contract ForexSwapHarness is ForexSwap {
         return zeroForOne ? _executeExactInput0For1(amountIn) : _executeExactInput1For0(amountIn);
     }
 
+    function executeExactOutput(uint256 amountOut, bool zeroForOne) external returns (uint256) {
+        return zeroForOne ? _executeExactOutput0For1(amountOut) : _executeExactOutput1For0(amountOut);
+    }
+
     function planRemove(uint256 shares) external view returns (uint256 amount0, uint256 amount1, uint256 deltaL) {
         RemoveLiquidityPlan memory plan = _planRemoveLiquidity(shares);
         return (plan.amount0, plan.amount1, plan.deltaL);
@@ -62,6 +66,46 @@ contract ForexSwapHarness is ForexSwap {
         );
 
         return (plan.amount0, plan.amount1, plan.shares, plan.deltaL);
+    }
+
+    function planBootstrapFromPrice(uint256 priceWad, uint256 amount0Desired, uint256 amount1Desired)
+        external
+        view
+        returns (uint256 amount0, uint256 amount1, uint256 shares, uint256 deltaL)
+    {
+        AddLiquidityPlan memory plan = _bootstrapPlan(priceWad, amount0Desired, amount1Desired);
+        return (plan.amount0, plan.amount1, plan.shares, plan.deltaL);
+    }
+
+    function bootstrapRatiosForPrice(uint256 priceWad) external view returns (uint256 xRatio, uint256 yRatio) {
+        uint256 mu = logNormalParams.mean;
+        uint256 sigma = logNormalParams.width;
+        uint256 d1 = _d1(priceWad, mu, sigma);
+        uint256 d2 = _d2(priceWad, mu, sigma);
+        xRatio = 1e18 - _phiWad(_toInt256(d1));
+        yRatio = _phiWad(_toInt256(d2));
+    }
+
+    function priceWadForXRatio(uint256 xRatio) external view returns (uint256 priceWad) {
+        int256 d1 = _invPhiWad(1e18 - xRatio);
+        uint256 sigma = logNormalParams.width;
+        int256 sigmaTerm = _toInt256(FullMath.mulDiv(_abs(d1), sigma, 1e18));
+        if (d1 < 0) sigmaTerm = -sigmaTerm;
+        int256 exponent = sigmaTerm - _toInt256(FullMath.mulDiv(sigma, sigma, 2e18));
+        priceWad = FullMath.mulDiv(logNormalParams.mean, _expWadToUint(exponent), 1e18);
+    }
+
+    function priceWadForYRatio(uint256 yRatio) external view returns (uint256 priceWad) {
+        int256 d2 = _invPhiWad(yRatio);
+        uint256 sigma = logNormalParams.width;
+        int256 sigmaTerm = _toInt256(FullMath.mulDiv(_abs(d2), sigma, 1e18));
+        if (d2 < 0) sigmaTerm = -sigmaTerm;
+        int256 exponent = sigmaTerm + _toInt256(FullMath.mulDiv(sigma, sigma, 2e18));
+        priceWad = FullMath.mulDiv(logNormalParams.mean, _expWadToUint(exponent), 1e18);
+    }
+
+    function enforceBootstrapTailMass(uint256 xRatio, uint256 yRatio) external pure {
+        if (xRatio <= STRICT_EPS || yRatio <= STRICT_EPS) revert ForexSwap.DomainExceeded();
     }
 
     function poolValuePerShare() external view returns (uint256) {
@@ -217,6 +261,19 @@ contract ForexSwapHarness is ForexSwap {
     function toInt256(uint256 value) external pure returns (int256) {
         return _toInt256(value);
     }
+
+    function currentPriceExponent() external view returns (int256) {
+        return _priceExponent(poolState.reserve0, poolState.liquidity);
+    }
+
+    function priceExponent(uint256 reserve0_, uint256 liquidity_) external view returns (int256) {
+        return _priceExponent(reserve0_, liquidity_);
+    }
+
+    function bootstrapDTerms(uint256 priceWad, uint256 mu, uint256 sigma) external pure returns (uint256 d1_, uint256 d2_) {
+        d1_ = _d1(priceWad, mu, sigma);
+        d2_ = _d2(priceWad, mu, sigma);
+    }
 }
 
 contract ForexSwapCorrectTest is Test {
@@ -242,10 +299,10 @@ contract ForexSwapCorrectTest is Test {
     address internal alice = address(0x1111);
     address internal attacker = address(0x3333);
     uint256 internal constant DOMAIN_INTERIOR_EPS = 5e16;
-    uint256 internal constant INVARIANT_DRIFT_ABS_TOLERANCE = 1e2;
-    uint256 internal constant INVARIANT_DRIFT_REL_TOLERANCE = 1e2;
-    uint256 internal constant MULTI_SWAP_DRIFT_ABS_TOLERANCE = 1e2;
-    uint256 internal constant MULTI_SWAP_DRIFT_REL_TOLERANCE = 1e2;
+    uint256 internal constant INVARIANT_DRIFT_ABS_TOLERANCE = 8e1;
+    uint256 internal constant INVARIANT_DRIFT_REL_TOLERANCE = 8e1;
+    uint256 internal constant MULTI_SWAP_DRIFT_ABS_TOLERANCE = 8e1;
+    uint256 internal constant MULTI_SWAP_DRIFT_REL_TOLERANCE = 8e1;
     uint256 internal constant ROUND_TRIP_STATE_ABS_TOLERANCE = 5e12;
 
     function setUp() public {
@@ -307,6 +364,51 @@ contract ForexSwapCorrectTest is Test {
     function test_bootstrapPlanRejectsNearZeroXRatio() external {
         vm.expectRevert(ForexSwap.DomainExceeded.selector);
         forexSwap.planBootstrap(type(uint160).max, 1e18, type(uint128).max);
+    }
+
+    function test_bootstrapTailMassGuardRejectsXRatioBelowOrAtEps() external {
+        uint256 eps = forexSwap.strictEps();
+
+        vm.expectRevert(ForexSwap.DomainExceeded.selector);
+        forexSwap.enforceBootstrapTailMass(eps - 1, 5e17);
+
+        vm.expectRevert(ForexSwap.DomainExceeded.selector);
+        forexSwap.enforceBootstrapTailMass(eps, 5e17);
+    }
+
+    function test_bootstrapTailMassGuardAcceptsXRatioAboveEps() external view {
+        uint256 eps = forexSwap.strictEps();
+        forexSwap.enforceBootstrapTailMass(eps + 1, 5e17);
+    }
+
+    function test_bootstrapTailMassGuardRejectsYRatioBelowOrAtEps() external {
+        uint256 eps = forexSwap.strictEps();
+
+        vm.expectRevert(ForexSwap.DomainExceeded.selector);
+        forexSwap.enforceBootstrapTailMass(5e17, eps - 1);
+
+        vm.expectRevert(ForexSwap.DomainExceeded.selector);
+        forexSwap.enforceBootstrapTailMass(5e17, eps);
+    }
+
+    function test_bootstrapTailMassGuardAcceptsYRatioAboveEps() external view {
+        uint256 eps = forexSwap.strictEps();
+        forexSwap.enforceBootstrapTailMass(5e17, eps + 1);
+    }
+
+    function test_bootstrapAmount0PathLiquidityAmplificationIsBoundedByXRatioFloor() external view {
+        uint256 eps = forexSwap.strictEps();
+        uint256 targetXRatio = eps + 1;
+        uint256 priceWad = forexSwap.priceWadForXRatio(targetXRatio);
+        (uint256 xRatio,) = forexSwap.bootstrapRatiosForPrice(priceWad);
+
+        assertGt(xRatio, eps);
+
+        uint256 amount0Desired = 1e18;
+        (uint256 amount0,, , uint256 deltaL) = forexSwap.planBootstrapFromPrice(priceWad, amount0Desired, type(uint128).max);
+
+        assertEq(amount0, amount0Desired);
+        assertLe(deltaL, FullMath.mulDiv(amount0Desired, 1e18, eps));
     }
 
     function test_quoteAndExecuteExactInputZeroForOneMoveState() external {
@@ -425,6 +527,20 @@ contract ForexSwapCorrectTest is Test {
         assertEq(forexSwap.toInt256(uint256(type(int256).max)), type(int256).max);
     }
 
+    function test_expWadRemainsContinuousJustInsideBounds() external view {
+        int256 delta = 1e14;
+
+        uint256 upperNear = forexSwap.expWadToUint(20e18 - delta);
+        uint256 upperEdge = forexSwap.expWadToUint(20e18);
+        assertGt(upperEdge, upperNear);
+        assertApproxEqRel(upperEdge, upperNear, 2e14);
+
+        uint256 lowerEdge = forexSwap.expWadToUint(-20e18);
+        uint256 lowerNear = forexSwap.expWadToUint(-20e18 + delta);
+        assertGt(lowerNear, lowerEdge);
+        assertApproxEqRel(lowerNear, lowerEdge, 2e14);
+    }
+
     function test_feeAccrualDoesNotReducePoolValuePerShare_zeroForOne() external {
         _seedBalancedPool();
 
@@ -526,6 +642,28 @@ contract ForexSwapCorrectTest is Test {
             assertLt(forexSwap.quoteExactInput(amountIn - 1, false), targetOut);
         } catch (bytes memory reason) {
             assertEq(bytes4(reason), ForexSwap.NonMonotonicQuote.selector);
+        }
+    }
+
+    function test_previewExactOutputMatchesBoundedOracle_zeroForOne() external {
+        uint256[4] memory liquidityCases = [uint256(4_000_000_000), 7_500_000_000, 12_000_000_000, 20_000_000_000];
+        uint256[4] memory reserveBps = [uint256(3_000), 4_000, 6_000, 7_400];
+        uint256[4] memory targetBps = [uint256(1_000), 2_500, 5_000, 7_500];
+
+        for (uint256 i = 0; i < liquidityCases.length; ++i) {
+            uint256 reserve0 = FullMath.mulDiv(liquidityCases[i], reserveBps[i], 10_000);
+            _assertPreviewOracleMatchesBoundedScan(reserve0, liquidityCases[i], targetBps[i], true);
+        }
+    }
+
+    function test_previewExactOutputMatchesBoundedOracle_oneForZero() external {
+        uint256[4] memory liquidityCases = [uint256(4_500_000_000), 8_000_000_000, 13_000_000_000, 18_000_000_000];
+        uint256[4] memory reserveBps = [uint256(3_000), 4_500, 5_500, 7_000];
+        uint256[4] memory targetBps = [uint256(1_250), 3_000, 5_500, 7_000];
+
+        for (uint256 i = 0; i < liquidityCases.length; ++i) {
+            uint256 reserve0 = FullMath.mulDiv(liquidityCases[i], reserveBps[i], 10_000);
+            _assertPreviewOracleMatchesBoundedScan(reserve0, liquidityCases[i], targetBps[i], false);
         }
     }
 
@@ -754,6 +892,36 @@ contract ForexSwapCorrectTest is Test {
         console2.log("maxPreviewExecuteGap", maxPreviewGap);
     }
 
+    function test_previewExactOutputBoundaryHarness_zeroForOne_logsFrontierAndMonotonicity() external {
+        _runPreviewBoundaryHarness(true);
+    }
+
+    function test_previewExactOutputBoundaryHarness_oneForZero_logsFrontierAndMonotonicity() external {
+        _runPreviewBoundaryHarness(false);
+    }
+
+    function _runPreviewBoundaryHarness(bool zeroForOne) internal {
+        uint256 liquidityL = 1e18;
+        uint256[4] memory xRatios = [uint256(5.1e16), 6e16, 94e16, 94.9e16];
+        console2.log("--- preview frontier dir ---", zeroForOne ? 0 : 1);
+
+        for (uint256 s = 0; s < xRatios.length; ++s) {
+            uint256 reserve0 = FullMath.mulDiv(liquidityL, xRatios[s], 1e18);
+            try this.logPreviewBoundaryCaseExternal(s, reserve0, liquidityL, zeroForOne) {}
+            catch {
+                console2.log("state", s);
+                console2.log("stateProbeReverted");
+            }
+        }
+    }
+
+    function logPreviewBoundaryCaseExternal(uint256 stateIndex, uint256 reserve0, uint256 liquidityL, bool zeroForOne)
+        external
+    {
+        uint256[4] memory targetBps = [uint256(1), 5, 25, 100];
+        _logPreviewBoundaryCase(stateIndex, reserve0, liquidityL, targetBps, zeroForOne);
+    }
+
     function testFuzz_addRemoveRoundTripDoesNotCreateValue(
         uint256 reserve0Seed,
         uint256 liquiditySeed,
@@ -863,6 +1031,90 @@ contract ForexSwapCorrectTest is Test {
         uint256 slope = ((yBefore - yAfter) * 1e18) / dx;
 
         assertApproxEqRel(slope, price, 5e15);
+    }
+
+    function test_traceObservedExponentRange_knownSequence() external {
+        uint256 liquidityL = 1e18;
+        uint256 reserve0 = 707110000000000000;
+        uint256 randomness = 15627;
+
+        forexSwap.seedConsistentState(reserve0, liquidityL, 1e18, alice);
+
+        int256 minExponent = forexSwap.currentPriceExponent();
+        int256 maxExponent = minExponent;
+
+        uint256 stateRand = randomness;
+        uint256 steps = 5 + (stateRand % 16);
+
+        for (uint256 i = 0; i < steps; ++i) {
+            stateRand = uint256(keccak256(abi.encode(stateRand, i)));
+            bool zeroForOne = (stateRand & 1) == 0;
+            (, , uint256 currentLiquidity,) = _state();
+            uint256 amountIn = bound(stateRand >> 8, 1e15, currentLiquidity / 40);
+
+            try forexSwap.quoteExactInput(amountIn, zeroForOne) returns (uint256 quote) {
+                if (quote == 0) continue;
+            } catch {
+                continue;
+            }
+
+            int256 beforeExponent = forexSwap.currentPriceExponent();
+            if (beforeExponent < minExponent) minExponent = beforeExponent;
+            if (beforeExponent > maxExponent) maxExponent = beforeExponent;
+
+            forexSwap.executeExactInput(amountIn, zeroForOne);
+
+            int256 afterExponent = forexSwap.currentPriceExponent();
+            if (afterExponent < minExponent) minExponent = afterExponent;
+            if (afterExponent > maxExponent) maxExponent = afterExponent;
+        }
+
+        console2.logInt(minExponent);
+        console2.logInt(maxExponent);
+    }
+
+    function testFuzz_repeatedSwapsKeepObservedExponentsWithinBounds(
+        uint256 reserve0Seed,
+        uint256 liquiditySeed,
+        uint256 randomness
+    ) external {
+        uint256 liquidityL = bound(liquiditySeed, 1e18, 8e18);
+        uint256 reserve0 = bound(reserve0Seed, liquidityL / 8, (liquidityL * 7) / 10);
+        forexSwap.seedConsistentState(reserve0, liquidityL, 1e18, alice);
+
+        uint256 stateRand = randomness;
+        uint256 steps = 5 + (stateRand % 16);
+
+        for (uint256 i = 0; i < steps; ++i) {
+            int256 exponentBefore = forexSwap.currentPriceExponent();
+            assertGe(exponentBefore, -20e18);
+            assertLe(exponentBefore, 20e18);
+
+            stateRand = uint256(keccak256(abi.encode(stateRand, i)));
+            bool zeroForOne = (stateRand & 1) == 0;
+            (, , uint256 currentLiquidity,) = _state();
+            uint256 amountIn = bound(stateRand >> 8, 1e15, currentLiquidity / 40);
+
+            try forexSwap.quoteExactInput(amountIn, zeroForOne) returns (uint256 quote) {
+                if (quote == 0) continue;
+            } catch {
+                continue;
+            }
+
+            forexSwap.executeExactInput(amountIn, zeroForOne);
+
+            int256 exponentAfter = forexSwap.currentPriceExponent();
+            assertGe(exponentAfter, -20e18);
+            assertLe(exponentAfter, 20e18);
+        }
+    }
+
+    function testFuzz_bootstrapDTermsStayFiniteAcrossValidWidths(uint256 priceSeed, uint256 widthSeed) external view {
+        uint256 priceWad = bound(priceSeed, 1e14, 100e18);
+        uint256 sigma = bound(widthSeed, 1, 2e18 - 1);
+        (uint256 d1_, uint256 d2_) = forexSwap.bootstrapDTerms(priceWad, 1e18, sigma);
+
+        assertGe(d1_, d2_);
     }
 
     function test_quoteExecuteIdentityOnFrozenState() external {
@@ -1216,6 +1468,180 @@ contract ForexSwapCorrectTest is Test {
         return (true, stepDrift, cumulativeDrift, previewGap);
     }
 
+    function _safeQuoteExactInput(uint256 amountIn, bool zeroForOne) internal view returns (bool ok, uint256 amountOut) {
+        try forexSwap.calculateAmountOut(amountIn, zeroForOne) returns (uint256 quoted) {
+            return (true, quoted);
+        } catch {
+            return (false, 0);
+        }
+    }
+
+    function _safeSolveQuoteExactInput(uint256 amountIn, bool zeroForOne)
+        internal
+        view
+        returns (bool ok, bool domainExceeded, uint256 amountOut)
+    {
+        try forexSwap.quoteExactInputForSolve(amountIn, zeroForOne) returns (uint256 quoted) {
+            return (true, false, quoted);
+        } catch (bytes memory reason) {
+            bytes4 selector = _revertSelector(reason);
+            if (selector == ForexSwap.DomainExceeded.selector) return (false, true, 0);
+            revert("unexpected quote revert");
+        }
+    }
+
+    function _assertPreviewOracleMatchesBoundedScan(
+        uint256 reserve0,
+        uint256 liquidityL,
+        uint256 targetBps,
+        bool zeroForOne
+    ) internal {
+        uint256 maxIn = 128;
+
+        forexSwap.seedConsistentState(reserve0, liquidityL, 1e18, alice);
+
+        (bool maxOk,, uint256 maxQuote) = _safeSolveQuoteExactInput(maxIn, zeroForOne);
+        assertTrue(maxOk);
+        assertGt(maxQuote, 1);
+
+        uint256 targetOut = FullMath.mulDiv(maxQuote, targetBps, 10_000);
+        if (targetOut == 0) targetOut = 1;
+        if (targetOut >= maxQuote) targetOut = maxQuote - 1;
+        (bool monotone, bool found, uint256 leastAmountIn) = _linearScanExactOutputOracle(maxIn, targetOut, zeroForOne);
+
+        if (!monotone) {
+            vm.expectRevert(ForexSwap.NonMonotonicQuote.selector);
+            forexSwap.previewExactOutput(targetOut, zeroForOne);
+            return;
+        }
+
+        assertTrue(found);
+        uint256 previewed = forexSwap.previewExactOutput(targetOut, zeroForOne);
+        assertEq(previewed, leastAmountIn);
+    }
+
+    function _linearScanExactOutputOracle(uint256 maxIn, uint256 targetOut, bool zeroForOne)
+        internal
+        view
+        returns (bool monotone, bool found, uint256 leastAmountIn)
+    {
+        monotone = true;
+        uint256 previousQuote = 0;
+
+        for (uint256 amountIn = 1; amountIn <= maxIn; ++amountIn) {
+            (bool ok, bool domainExceeded, uint256 quote) = _safeSolveQuoteExactInput(amountIn, zeroForOne);
+            if (!ok) {
+                assertTrue(domainExceeded);
+                break;
+            }
+
+            if (quote < previousQuote) return (false, false, 0);
+            if (!found && quote >= targetOut) {
+                found = true;
+                leastAmountIn = amountIn;
+            }
+            previousQuote = quote;
+        }
+    }
+
+    function _logPreviewBoundaryCase(
+        uint256 stateIndex,
+        uint256 reserve0,
+        uint256 liquidityL,
+        uint256[4] memory targetBps,
+        bool zeroForOne
+    ) internal {
+        forexSwap.seedConsistentState(reserve0, liquidityL, 1e18, alice);
+
+        (uint256 r0, uint256 r1,,) = _state();
+        (uint256 mean,,) = forexSwap.logNormalParams();
+        uint256 xOverL = FullMath.mulDiv(r0, 1e18, liquidityL);
+        uint256 yOverMuL = FullMath.mulDiv(r1, 1e18, mean * liquidityL / 1e18);
+        console2.log("state", stateIndex);
+        console2.log("xOverL", xOverL);
+        console2.log("yOverMuL", yOverMuL);
+
+        uint256 firstQuoteNonMonotoneInput = _findFirstQuoteNonMonotoneInput(liquidityL, zeroForOne);
+        (uint256 firstPreviewDomainExceeded, uint256 firstPreviewNonMonotonic) =
+            _findPreviewFailureFrontier(reserve0, liquidityL, targetBps, zeroForOne);
+        (uint256 firstExecDomainExceeded, uint256 firstExecNonMonotonic) =
+            _findExecuteFailureFrontier(reserve0, liquidityL, targetBps, zeroForOne);
+
+        console2.log("firstPreviewDomainExceededBps", firstPreviewDomainExceeded);
+        console2.log("firstPreviewNonMonotonicBps", firstPreviewNonMonotonic);
+        console2.log("firstExecDomainExceededBps", firstExecDomainExceeded);
+        console2.log("firstExecNonMonotonicBps", firstExecNonMonotonic);
+        console2.log("firstQuoteNonMonotoneInput", firstQuoteNonMonotoneInput);
+    }
+
+    function _findFirstQuoteNonMonotoneInput(uint256 liquidityL, bool zeroForOne) internal view returns (uint256) {
+        uint256 previousQuote = 0;
+        for (uint256 i = 1; i <= 16; ++i) {
+            uint256 sampleIn = FullMath.mulDiv(liquidityL / 8, i, 16);
+            (bool ok, uint256 quoted) = _safeQuoteExactInput(sampleIn, zeroForOne);
+            if (!ok) break;
+            if (quoted < previousQuote) return sampleIn;
+            previousQuote = quoted;
+        }
+        return 0;
+    }
+
+    function _findPreviewFailureFrontier(
+        uint256 reserve0,
+        uint256 liquidityL,
+        uint256[4] memory targetBps,
+        bool zeroForOne
+    ) internal returns (uint256 firstDomainExceededBps, uint256 firstNonMonotonicBps) {
+        forexSwap.seedConsistentState(reserve0, liquidityL, 1e18, alice);
+        (uint256 r0, uint256 r1,,) = _state();
+        uint256 stateAmountOut = zeroForOne ? r1 : r0;
+
+        for (uint256 t = 0; t < targetBps.length; ++t) {
+            uint256 targetOut = FullMath.mulDiv(stateAmountOut, targetBps[t], 10_000);
+            if (targetOut == 0) continue;
+
+            forexSwap.seedConsistentState(reserve0, liquidityL, 1e18, alice);
+            try forexSwap.previewExactOutput(targetOut, zeroForOne) returns (uint256) {}
+            catch (bytes memory reason) {
+                bytes4 selector = _revertSelector(reason);
+                if (selector == ForexSwap.DomainExceeded.selector && firstDomainExceededBps == 0) {
+                    firstDomainExceededBps = targetBps[t];
+                }
+                if (selector == ForexSwap.NonMonotonicQuote.selector && firstNonMonotonicBps == 0) {
+                    firstNonMonotonicBps = targetBps[t];
+                }
+            }
+        }
+    }
+
+    function _findExecuteFailureFrontier(
+        uint256 reserve0,
+        uint256 liquidityL,
+        uint256[4] memory targetBps,
+        bool zeroForOne
+    ) internal returns (uint256 firstDomainExceededBps, uint256 firstNonMonotonicBps) {
+        forexSwap.seedConsistentState(reserve0, liquidityL, 1e18, alice);
+        (uint256 r0, uint256 r1,,) = _state();
+        uint256 stateAmountOut = zeroForOne ? r1 : r0;
+
+        for (uint256 t = 0; t < targetBps.length; ++t) {
+            uint256 targetOut = FullMath.mulDiv(stateAmountOut, targetBps[t], 10_000);
+            if (targetOut == 0) continue;
+
+            forexSwap.seedConsistentState(reserve0, liquidityL, 1e18, alice);
+            try forexSwap.executeExactOutput(targetOut, zeroForOne) returns (uint256) {}
+            catch (bytes memory reason) {
+                bytes4 selector = _revertSelector(reason);
+                if (selector == ForexSwap.DomainExceeded.selector && firstDomainExceededBps == 0) {
+                    firstDomainExceededBps = targetBps[t];
+                }
+                if (selector == ForexSwap.NonMonotonicQuote.selector && firstNonMonotonicBps == 0) {
+                    firstNonMonotonicBps = targetBps[t];
+                }
+            }
+        }
+    }
+
     function _absInt(int256 value) internal pure returns (uint256) {
         return uint256(value >= 0 ? value : -value);
     }
@@ -1230,5 +1656,12 @@ contract ForexSwapCorrectTest is Test {
 
     function _absDiffUint(uint256 a, uint256 b) internal pure returns (uint256) {
         return a >= b ? a - b : b - a;
+    }
+
+    function _revertSelector(bytes memory reason) internal pure returns (bytes4 selector) {
+        if (reason.length < 4) return bytes4(0);
+        assembly {
+            selector := mload(add(reason, 32))
+        }
     }
 }

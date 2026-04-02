@@ -76,6 +76,9 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
 
     uint256 private constant WAD = 1e18;
     uint256 private constant SEARCH_STEPS = 64;
+    // Minimum admissible bootstrap tail mass in WAD space.
+    // This bounds liquidity amplification in deltaL = amount0 * WAD / xRatio
+    // and keeps the accepted region above CDF tail noise.
     uint256 private constant EPS = 1e9;
     int256 private constant MAX_EXPONENT_WAD = 20e18;
     int256 private constant MIN_EXPONENT_WAD = -20e18;
@@ -288,6 +291,11 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         whenNotPaused
         returns (uint256 amountOut)
     {
+        if (amountIn == 0 || poolState.liquidity == 0) return 0;
+        return zeroForOne ? _quoteExactInput0For1(amountIn) : _quoteExactInput1For0(amountIn);
+    }
+
+    function quoteExactInputForSolve(uint256 amountIn, bool zeroForOne) external view returns (uint256 amountOut) {
         if (amountIn == 0 || poolState.liquidity == 0) return 0;
         return zeroForOne ? _quoteExactInput0For1(amountIn) : _quoteExactInput1For0(amountIn);
     }
@@ -600,10 +608,20 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     }
 
     function _safeQuoteExactInput(uint256 amountIn, bool zeroForOne) internal view returns (bool ok, uint256 amountOut) {
-        try this.calculateAmountOut(amountIn, zeroForOne) returns (uint256 quoted) {
+        try this.quoteExactInputForSolve(amountIn, zeroForOne) returns (uint256 quoted) {
             return (true, quoted);
-        } catch {
-            return (false, 0);
+        } catch (bytes memory reason) {
+            if (_revertSelector(reason) == DomainExceeded.selector) return (false, 0);
+            assembly ("memory-safe") {
+                revert(add(reason, 0x20), mload(reason))
+            }
+        }
+    }
+
+    function _revertSelector(bytes memory reason) internal pure returns (bytes4 selector) {
+        if (reason.length < 4) return bytes4(0);
+        assembly ("memory-safe") {
+            selector := mload(add(reason, 0x20))
         }
     }
 
@@ -654,14 +672,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     }
 
     function _price0(uint256 reserve0_, uint256 liquidity_) internal view returns (uint256 priceWad) {
-        _requireReserve0Interior(reserve0_, liquidity_);
-
-        uint256 u = WAD - FullMath.mulDiv(reserve0_, WAD, liquidity_);
-        int256 z = _invPhiWad(u);
-        int256 sigmaTerm = _toInt256(FullMath.mulDiv(_abs(z), logNormalParams.width, WAD));
-        if (z < 0) sigmaTerm = -sigmaTerm;
-        int256 exponent = sigmaTerm - _toInt256(FullMath.mulDiv(logNormalParams.width, logNormalParams.width, 2 * WAD));
-        priceWad = FullMath.mulDiv(logNormalParams.mean, _expWadToUint(exponent), WAD);
+        priceWad = FullMath.mulDiv(logNormalParams.mean, _expWadToUint(_priceExponent(reserve0_, liquidity_)), WAD);
     }
 
     function _d1(uint256 priceWad, uint256 mu, uint256 sigma) internal pure returns (uint256) {
@@ -694,6 +705,16 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
 
     function _maxReserve1(uint256 liquidity_) internal view returns (uint256) {
         return FullMath.mulDiv(logNormalParams.mean, liquidity_, WAD);
+    }
+
+    function _priceExponent(uint256 reserve0_, uint256 liquidity_) internal view returns (int256 exponent) {
+        _requireReserve0Interior(reserve0_, liquidity_);
+
+        uint256 u = WAD - FullMath.mulDiv(reserve0_, WAD, liquidity_);
+        int256 z = _invPhiWad(u);
+        int256 sigmaTerm = _toInt256(FullMath.mulDiv(_abs(z), logNormalParams.width, WAD));
+        if (z < 0) sigmaTerm = -sigmaTerm;
+        exponent = sigmaTerm - _toInt256(FullMath.mulDiv(logNormalParams.width, logNormalParams.width, 2 * WAD));
     }
 
     function _expWadToUint(int256 exponent) internal pure returns (uint256 result) {
