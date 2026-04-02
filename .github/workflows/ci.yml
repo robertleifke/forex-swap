@@ -12,11 +12,14 @@ on:
       - "main"
 
 jobs:
-  lint:
+  checks:
     runs-on: "ubuntu-latest"
     steps:
       - name: "Check out the repo"
         uses: "actions/checkout@v4"
+        with:
+          submodules: "recursive"
+          fetch-depth: 1
 
       - name: "Install Foundry"
         uses: "foundry-rs/foundry-toolchain@v1"
@@ -30,49 +33,8 @@ jobs:
       - name: "Lint the code"
         run: "bun run lint"
 
-      - name: "Add lint summary"
-        run: |
-          echo "## Lint result" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Passed" >> $GITHUB_STEP_SUMMARY
-
-  build:
-    runs-on: "ubuntu-latest"
-    steps:
-      - name: "Check out the repo"
-        uses: "actions/checkout@v4"
-
-      - name: "Install Foundry"
-        uses: "foundry-rs/foundry-toolchain@v1"
-
-      - name: "Install Bun"
-        uses: "oven-sh/setup-bun@v1"
-
-      - name: "Install the Node.js dependencies"
-        run: "bun install"
-
       - name: "Build the production contracts and print their size"
         run: "forge build --sizes --skip test --skip script"
-
-      - name: "Add build summary"
-        run: |
-          echo "## Build result" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Passed" >> $GITHUB_STEP_SUMMARY
-
-  test:
-    needs: ["lint", "build"]
-    runs-on: "ubuntu-latest"
-    steps:
-      - name: "Check out the repo"
-        uses: "actions/checkout@v4"
-
-      - name: "Install Foundry"
-        uses: "foundry-rs/foundry-toolchain@v1"
-
-      - name: "Install Bun"
-        uses: "oven-sh/setup-bun@v1"
-
-      - name: "Install the Node.js dependencies"
-        run: "bun install"
 
       - name: "Show the Foundry config"
         run: "forge config"
@@ -86,7 +48,10 @@ jobs:
       - name: "Run the tests"
         run: "forge test"
 
-      - name: "Add test summary"
+      - name: "Add CI summary"
         run: |
-          echo "## Tests result" >> $GITHUB_STEP_SUMMARY
+          echo "## CI result" >> $GITHUB_STEP_SUMMARY
+          echo "- Lint: Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- Build: Passed" >> $GITHUB_STEP_SUMMARY
+          echo "- Tests: Passed" >> $GITHUB_STEP_SUMMARY
           echo "✅ Passed" >> $GITHUB_STEP_SUMMARY
