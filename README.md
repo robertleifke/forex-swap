@@ -13,7 +13,7 @@
 
 ## Overview
 
-ForexSwap is a Uniswap v4 hook implementation of a [log normal](https://en.wikipedia.org/wiki/Log-normal_distribution) market maker. It's statistical curve makes liquidity provisioning more passive and capital efficient on foreign currency pairs especially during periods of high volatilty.
+ForexSwap is a Uniswap v4 hook implementation of a [log normal](https://en.wikipedia.org/wiki/Log-normal_distribution) market maker. It's statistical curve that makes liquidity provisioning more passive and capital efficient on frontier FX pairs such as USDC/cNGN.
 
 ## Quick Start
 
