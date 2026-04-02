@@ -2,7 +2,8 @@
 
 > WARNING: This code has not been audited. Treat it as experimental.
 
-ForexSwap is a Uniswap v4 hook for FX stablecoin pools. It plugs custom accounting into the v4 swap and liquidity lifecycle so the pool can use a custom curve instead of the default v3 math.
+ForexSwap is a Uniswap v4 hook for FX stablecoin pools. It plugs custom accounting into the v4 swap and liquidity
+lifecycle so the pool can use a custom curve instead of the default v3 math.
 
 The implementation in this repo follows the v4 architecture described in the official overview:
 
