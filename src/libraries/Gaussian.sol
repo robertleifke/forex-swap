@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import {SignedWadMath} from "./SignedWadMath.sol";
-import {diviWad, muliWad} from "./Units.sol";
+import { SignedWadMath } from "./SignedWadMath.sol";
+import { diviWad, muliWad } from "./Units.sol";
 
 /**
  * @notice Canonical normal CDF/PPF helpers backed by a single inverse-normal approximation family.
@@ -18,7 +18,7 @@ library Gaussian {
     int256 internal constant HALF_WAD = 0.5 ether;
     int256 internal constant ONE = 1 ether;
     int256 internal constant TWO = 2 ether;
-    int256 internal constant SQRT_2PI = 2_506628274631000502;
+    int256 internal constant SQRT_2PI = 2_506_628_274_631_000_502;
 
     int256 internal constant P_LOW = 24_250_000_000_000_000;
     int256 internal constant P_HIGH = 975_750_000_000_000_000;
