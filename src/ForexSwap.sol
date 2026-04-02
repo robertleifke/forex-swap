@@ -13,6 +13,8 @@ import {FixedPoint96} from "v4-core/src/libraries/FixedPoint96.sol";
 import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
 import {PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
 import {PoolKey} from "v4-core/src/types/PoolKey.sol";
+import {Gaussian} from "./libraries/Gaussian.sol";
+import {SignedWadMath} from "./libraries/SignedWadMath.sol";
 
 /**
  * @title Forex Swap
@@ -35,6 +37,9 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     error MaxAmountExceeded();
     error DomainExceeded();
     error UninitializedMarket();
+    error NonMonotonicQuote();
+    error ExponentOutOfBounds();
+    error Int256CastOverflow();
 
     event ParametersUpdated(uint256 newMean, uint256 newWidth, uint256 newSwapFee);
     event LiquidityAdded(address indexed provider, uint256 amount0, uint256 amount1, uint256 shares);
@@ -70,12 +75,10 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     }
 
     uint256 private constant WAD = 1e18;
-    uint256 private constant HALF_WAD = 5e17;
-    uint256 private constant LN_2 = 693_147_180_559_945_309;
-    uint256 private constant MAX_EXP_INPUT = 20e18;
-    uint256 private constant Q192 = FixedPoint96.Q96 * FixedPoint96.Q96;
-    uint256 private constant LOGISTIC_A = 1_702_000_000_000_000_000;
     uint256 private constant SEARCH_STEPS = 64;
+    uint256 private constant EPS = 1e9;
+    int256 private constant MAX_EXPONENT_WAD = 20e18;
+    int256 private constant MIN_EXPONENT_WAD = -20e18;
 
     mapping(address account => uint256 balance) public balanceOf;
     uint256 public totalSupply;
@@ -313,10 +316,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     function currentInvariant() external view returns (int256) {
         PoolState memory state = poolState;
         if (state.liquidity == 0) return 0;
-
-        uint256 xOverL = FullMath.mulDiv(state.reserve0, WAD, state.liquidity);
-        uint256 yOverMuL = FullMath.mulDiv(state.reserve1, WAD, _maxReserve1(state.liquidity));
-        return _invPhiWad(xOverL) + _invPhiWad(yOverMuL) + int256(logNormalParams.width);
+        return _residual(state.reserve0, state.reserve1, state.liquidity);
     }
 
     function currentPrice() external view returns (uint256) {
@@ -370,7 +370,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
 
         uint256 xRatio = WAD - _phiWad(int256(d1));
         uint256 yRatio = _phiWad(int256(d2));
-        if (xRatio == 0 || yRatio == 0) revert DomainExceeded();
+        if (xRatio <= EPS || yRatio <= EPS) revert DomainExceeded();
 
         uint256 requiredYForX = amount0Desired == 0
             ? type(uint256).max
@@ -410,10 +410,12 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     function _executeExactInput0For1(uint256 amountIn) internal returns (uint256 amountOut) {
         PoolState memory state = poolState;
         uint256 feeAmount = FullMath.mulDiv(amountIn, logNormalParams.swapFee, WAD);
-        uint256 deltaL = _feeToLiquidity0(state, feeAmount);
-        uint256 newLiquidity = state.liquidity + deltaL;
-        uint256 newReserve0 = state.reserve0 + amountIn;
-        if (newReserve0 >= newLiquidity) revert DomainExceeded();
+        uint256 effectiveIn = amountIn - feeAmount;
+
+        uint256 xAfterFee = state.reserve0 + feeAmount;
+        uint256 newLiquidity = _solveLiquidityFromReserves(xAfterFee, state.reserve1);
+        uint256 newReserve0 = xAfterFee + effectiveIn;
+        _requireReserve0Interior(newReserve0, newLiquidity);
 
         uint256 newReserve1 = _solveReserve1(newReserve0, newLiquidity);
         if (newReserve1 >= state.reserve1) revert InsufficientLiquidity();
@@ -430,10 +432,12 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     function _executeExactInput1For0(uint256 amountIn) internal returns (uint256 amountOut) {
         PoolState memory state = poolState;
         uint256 feeAmount = FullMath.mulDiv(amountIn, logNormalParams.swapFee, WAD);
-        uint256 deltaL = _feeToLiquidity1(state, feeAmount);
-        uint256 newLiquidity = state.liquidity + deltaL;
-        uint256 newReserve1 = state.reserve1 + amountIn;
-        if (newReserve1 >= _maxReserve1(newLiquidity)) revert DomainExceeded();
+        uint256 effectiveIn = amountIn - feeAmount;
+
+        uint256 yAfterFee = state.reserve1 + feeAmount;
+        uint256 newLiquidity = _solveLiquidityFromReserves(state.reserve0, yAfterFee);
+        uint256 newReserve1 = yAfterFee + effectiveIn;
+        _requireReserve1Interior(newReserve1, newLiquidity);
 
         uint256 newReserve0 = _solveReserve0(newReserve1, newLiquidity);
         if (newReserve0 >= state.reserve0) revert InsufficientLiquidity();
@@ -461,38 +465,14 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         PoolState memory state = poolState;
         if (targetOut == 0 || targetOut >= state.reserve1) revert InsufficientLiquidity();
 
-        uint256 low = 1;
-        uint256 high = Math.max(state.reserve0, 1e6);
-        while (_quoteExactInput0For1(high) < targetOut) {
-            high *= 2;
-            if (high >= state.liquidity * 4) revert InsufficientLiquidity();
-        }
-
-        for (uint256 i = 0; i < SEARCH_STEPS; ++i) {
-            uint256 mid = (low + high) / 2;
-            if (_quoteExactInput0For1(mid) >= targetOut) high = mid;
-            else low = mid + 1;
-        }
-        return high;
+        return _solveLeastExactInput(targetOut, Math.max(state.reserve0, 1e6), state.liquidity * 4, true);
     }
 
     function _solveExactInput1For0(uint256 targetOut) internal view returns (uint256 amountIn) {
         PoolState memory state = poolState;
         if (targetOut == 0 || targetOut >= state.reserve0) revert InsufficientLiquidity();
 
-        uint256 low = 1;
-        uint256 high = Math.max(state.reserve1, 1e6);
-        while (_quoteExactInput1For0(high) < targetOut) {
-            high *= 2;
-            if (high >= _maxReserve1(state.liquidity) * 4) revert InsufficientLiquidity();
-        }
-
-        for (uint256 i = 0; i < SEARCH_STEPS; ++i) {
-            uint256 mid = (low + high) / 2;
-            if (_quoteExactInput1For0(mid) >= targetOut) high = mid;
-            else low = mid + 1;
-        }
-        return high;
+        return _solveLeastExactInput(targetOut, Math.max(state.reserve1, 1e6), _maxReserve1(state.liquidity) * 4, false);
     }
 
     function _quoteExactInput0For1(uint256 amountIn) internal view returns (uint256 amountOut) {
@@ -500,10 +480,12 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         if (state.liquidity == 0 || amountIn == 0) return 0;
 
         uint256 feeAmount = FullMath.mulDiv(amountIn, logNormalParams.swapFee, WAD);
-        uint256 deltaL = _feeToLiquidity0(state, feeAmount);
-        uint256 newLiquidity = state.liquidity + deltaL;
-        uint256 newReserve0 = state.reserve0 + amountIn;
-        if (newReserve0 >= newLiquidity) revert DomainExceeded();
+        uint256 effectiveIn = amountIn - feeAmount;
+
+        uint256 xAfterFee = state.reserve0 + feeAmount;
+        uint256 newLiquidity = _solveLiquidityFromReserves(xAfterFee, state.reserve1);
+        uint256 newReserve0 = xAfterFee + effectiveIn;
+        _requireReserve0Interior(newReserve0, newLiquidity);
 
         uint256 newReserve1 = _solveReserve1(newReserve0, newLiquidity);
         if (newReserve1 >= state.reserve1) return 0;
@@ -515,137 +497,194 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         if (state.liquidity == 0 || amountIn == 0) return 0;
 
         uint256 feeAmount = FullMath.mulDiv(amountIn, logNormalParams.swapFee, WAD);
-        uint256 deltaL = _feeToLiquidity1(state, feeAmount);
-        uint256 newLiquidity = state.liquidity + deltaL;
-        uint256 newReserve1 = state.reserve1 + amountIn;
-        if (newReserve1 >= _maxReserve1(newLiquidity)) revert DomainExceeded();
+        uint256 effectiveIn = amountIn - feeAmount;
+
+        uint256 yAfterFee = state.reserve1 + feeAmount;
+        uint256 newLiquidity = _solveLiquidityFromReserves(state.reserve0, yAfterFee);
+        uint256 newReserve1 = yAfterFee + effectiveIn;
+        _requireReserve1Interior(newReserve1, newLiquidity);
 
         uint256 newReserve0 = _solveReserve0(newReserve1, newLiquidity);
         if (newReserve0 >= state.reserve0) return 0;
         return state.reserve0 - newReserve0;
     }
 
-    function _feeToLiquidity0(PoolState memory state, uint256 feeAmount) internal view returns (uint256 deltaL) {
-        if (feeAmount == 0) return 0;
-        uint256 priceWad = _price0(state.reserve0, state.liquidity);
-        uint256 totalValueY = FullMath.mulDiv(priceWad, state.reserve0, WAD) + state.reserve1;
-        uint256 feeValueY = FullMath.mulDiv(priceWad, feeAmount, WAD);
-        return FullMath.mulDiv(state.liquidity, feeValueY, totalValueY);
+    function _solveLiquidityFromReserves(uint256 reserve0_, uint256 reserve1_) internal view returns (uint256 liquidity_) {
+        uint256 mu = logNormalParams.mean;
+
+        uint256 lower0 = reserve0_ + 1;
+        uint256 lower1 = FullMath.mulDivRoundingUp(reserve1_, WAD, mu) + 1;
+        uint256 low = Math.max(lower0, lower1);
+        uint256 high = Math.max(poolState.liquidity, low);
+
+        while (_residual(reserve0_, reserve1_, high) > 0) {
+            high *= 2;
+            if (high > type(uint256).max / 2) revert DomainExceeded();
+        }
+
+        for (uint256 i = 0; i < SEARCH_STEPS; ++i) {
+            uint256 mid = (low + high) / 2;
+            int256 residual = _residual(reserve0_, reserve1_, mid);
+            if (residual > 0) low = mid + 1;
+            else high = mid;
+        }
+
+        return high;
     }
 
-    function _feeToLiquidity1(PoolState memory state, uint256 feeAmount) internal view returns (uint256 deltaL) {
-        if (feeAmount == 0) return 0;
-        uint256 priceWad = _price0(state.reserve0, state.liquidity);
-        uint256 totalValueY = FullMath.mulDiv(priceWad, state.reserve0, WAD) + state.reserve1;
-        return FullMath.mulDiv(state.liquidity, feeAmount, totalValueY);
+    function _solveLeastExactInput(
+        uint256 targetOut,
+        uint256 initialHigh,
+        uint256 maxHigh,
+        bool zeroForOne
+    ) internal view returns (uint256 amountIn) {
+        uint256 low = 0;
+        uint256 lowQuote = 0;
+        uint256 high = Math.min(initialHigh, maxHigh);
+        uint256 highQuote = 0;
+        bool highIsValid = false;
+
+        while (true) {
+            (bool ok, uint256 sampledQuote) = _safeQuoteExactInput(high, zeroForOne);
+            if (ok) {
+                if (sampledQuote < lowQuote) revert NonMonotonicQuote();
+                highQuote = sampledQuote;
+                highIsValid = sampledQuote >= targetOut;
+            }
+
+            if (highIsValid || !ok) {
+                for (uint256 i = 0; i < SEARCH_STEPS; ++i) {
+                    if (low + 1 >= high) break;
+
+                    uint256 mid = (low + high) / 2;
+                    (bool midOk, uint256 midQuote) = _safeQuoteExactInput(mid, zeroForOne);
+                    if (!midOk) {
+                        high = mid;
+                        highIsValid = false;
+                        continue;
+                    }
+
+                    if (midQuote < lowQuote || (highIsValid && midQuote > highQuote)) revert NonMonotonicQuote();
+
+                    if (midQuote >= targetOut) {
+                        high = mid;
+                        highQuote = midQuote;
+                        highIsValid = true;
+                    } else {
+                        low = mid;
+                        lowQuote = midQuote;
+                    }
+                }
+
+                if (!highIsValid) revert InsufficientLiquidity();
+
+                (bool highOk, uint256 terminalHighQuote) = _safeQuoteExactInput(high, zeroForOne);
+                if (!highOk || terminalHighQuote < targetOut) revert NonMonotonicQuote();
+                if (high > 0) {
+                    (bool prevOk, uint256 prevQuote) = _safeQuoteExactInput(high - 1, zeroForOne);
+                    if (prevOk && prevQuote >= targetOut) revert NonMonotonicQuote();
+                }
+                return high;
+            }
+
+            if (high >= maxHigh) revert InsufficientLiquidity();
+            low = high;
+            lowQuote = sampledQuote;
+
+            if (high > maxHigh / 2) {
+                high = maxHigh;
+            } else {
+                high *= 2;
+            }
+        }
+    }
+
+    function _safeQuoteExactInput(uint256 amountIn, bool zeroForOne) internal view returns (bool ok, uint256 amountOut) {
+        try this.calculateAmountOut(amountIn, zeroForOne) returns (uint256 quoted) {
+            return (true, quoted);
+        } catch {
+            return (false, 0);
+        }
+    }
+
+    function _residual(uint256 reserve0_, uint256 reserve1_, uint256 liquidity_)
+        internal
+        view
+        returns (int256)
+    {
+        _requireReserve0Interior(reserve0_, liquidity_);
+        _requireReserve1Interior(reserve1_, liquidity_);
+
+        uint256 xOverL = FullMath.mulDiv(reserve0_, WAD, liquidity_);
+        uint256 yOverMuL = FullMath.mulDiv(reserve1_, WAD, _maxReserve1(liquidity_));
+
+        return _invPhiWad(xOverL) + _invPhiWad(yOverMuL) + int256(logNormalParams.width);
     }
 
     function _solveReserve1(uint256 reserve0_, uint256 liquidity_) internal view returns (uint256 reserve1_) {
-        uint256 xOverL = FullMath.mulDiv(reserve0_, WAD, liquidity_);
-        int256 inside = -int256(logNormalParams.width) - _invPhiWad(xOverL);
-        uint256 yRatio = _phiWad(inside);
-        reserve1_ = FullMath.mulDiv(_maxReserve1(liquidity_), yRatio, WAD);
+        _requireReserve0Interior(reserve0_, liquidity_);
+
+        uint256 low = EPS;
+        uint256 high = _maxReserve1(liquidity_) - EPS;
+
+        for (uint256 i = 0; i < SEARCH_STEPS; ++i) {
+            uint256 mid = (low + high) / 2;
+            int256 residual = _residual(reserve0_, mid, liquidity_);
+            if (residual > 0) high = mid;
+            else low = mid + 1;
+        }
+
+        reserve1_ = high;
     }
 
     function _solveReserve0(uint256 reserve1_, uint256 liquidity_) internal view returns (uint256 reserve0_) {
-        uint256 yOverMuL = FullMath.mulDiv(reserve1_, WAD, _maxReserve1(liquidity_));
-        int256 inside = -int256(logNormalParams.width) - _invPhiWad(yOverMuL);
-        uint256 xRatio = _phiWad(inside);
-        reserve0_ = FullMath.mulDiv(liquidity_, xRatio, WAD);
+        _requireReserve1Interior(reserve1_, liquidity_);
+
+        uint256 low = EPS;
+        uint256 high = liquidity_ - EPS;
+
+        for (uint256 i = 0; i < SEARCH_STEPS; ++i) {
+            uint256 mid = (low + high) / 2;
+            int256 residual = _residual(mid, reserve1_, liquidity_);
+            if (residual > 0) high = mid;
+            else low = mid + 1;
+        }
+
+        reserve0_ = high;
     }
 
     function _price0(uint256 reserve0_, uint256 liquidity_) internal view returns (uint256 priceWad) {
+        _requireReserve0Interior(reserve0_, liquidity_);
+
         uint256 u = WAD - FullMath.mulDiv(reserve0_, WAD, liquidity_);
         int256 z = _invPhiWad(u);
-        int256 sigmaTerm = int256(FullMath.mulDiv(uint256(z >= 0 ? z : -z), logNormalParams.width, WAD));
+        int256 sigmaTerm = _toInt256(FullMath.mulDiv(_abs(z), logNormalParams.width, WAD));
         if (z < 0) sigmaTerm = -sigmaTerm;
-        int256 exponent = sigmaTerm - int256(FullMath.mulDiv(logNormalParams.width, logNormalParams.width, 2 * WAD));
-        priceWad = FullMath.mulDiv(logNormalParams.mean, _expSignedWad(exponent), WAD);
+        int256 exponent = sigmaTerm - _toInt256(FullMath.mulDiv(logNormalParams.width, logNormalParams.width, 2 * WAD));
+        priceWad = FullMath.mulDiv(logNormalParams.mean, _expWadToUint(exponent), WAD);
     }
 
     function _d1(uint256 priceWad, uint256 mu, uint256 sigma) internal pure returns (uint256) {
-        int256 lnTerm = _lnWad(FullMath.mulDiv(priceWad, WAD, mu));
-        int256 numerator = lnTerm + int256(FullMath.mulDiv(sigma, sigma, 2 * WAD));
+        int256 lnTerm = SignedWadMath.lnWad(_toInt256(FullMath.mulDiv(priceWad, WAD, mu)));
+        int256 numerator = lnTerm + _toInt256(FullMath.mulDiv(sigma, sigma, 2 * WAD));
         if (numerator <= 0) return 0;
         return uint256(numerator) * WAD / sigma;
     }
 
     function _d2(uint256 priceWad, uint256 mu, uint256 sigma) internal pure returns (uint256) {
-        int256 lnTerm = _lnWad(FullMath.mulDiv(priceWad, WAD, mu));
-        int256 numerator = lnTerm - int256(FullMath.mulDiv(sigma, sigma, 2 * WAD));
+        int256 lnTerm = SignedWadMath.lnWad(_toInt256(FullMath.mulDiv(priceWad, WAD, mu)));
+        int256 numerator = lnTerm - _toInt256(FullMath.mulDiv(sigma, sigma, 2 * WAD));
         if (numerator <= 0) return 0;
         return uint256(numerator) * WAD / sigma;
     }
 
     function _phiWad(int256 z) internal pure returns (uint256) {
-        bool negative = z < 0;
-        uint256 scaled = FullMath.mulDiv(uint256(negative ? -z : z), LOGISTIC_A, WAD);
-        uint256 expTerm = _expWad(scaled);
-
-        if (negative) {
-            return FullMath.mulDiv(WAD, WAD, WAD + expTerm);
-        }
-        return FullMath.mulDiv(expTerm, WAD, WAD + expTerm);
+        return uint256(Gaussian.cdf(z));
     }
 
     function _invPhiWad(uint256 u) internal pure returns (int256) {
         if (u == 0 || u >= WAD) revert DomainExceeded();
-        int256 lnOdds = _lnWad(FullMath.mulDiv(u, WAD, WAD - u));
-        return (lnOdds * int256(WAD)) / int256(LOGISTIC_A);
-    }
-
-    function _expSignedWad(int256 x) internal pure returns (uint256) {
-        if (x == 0) return WAD;
-        if (x > 0) return _expWad(uint256(x));
-
-        uint256 absX = uint256(-x);
-        uint256 expAbs = _expWad(absX);
-        return FullMath.mulDiv(WAD, WAD, expAbs);
-    }
-
-    function _expWad(uint256 x) internal pure returns (uint256) {
-        if (x == 0) return WAD;
-        if (x > MAX_EXP_INPUT) return type(uint256).max / 2;
-
-        uint256 k = x / LN_2;
-        uint256 r = x % LN_2;
-
-        uint256 series = WAD;
-        uint256 term = WAD;
-
-        for (uint256 i = 1; i <= 8; ++i) {
-            term = FullMath.mulDiv(term, r, i * WAD);
-            series += term;
-        }
-
-        return series << k;
-    }
-
-    function _lnWad(uint256 x) internal pure returns (int256) {
-        if (x == 0) revert DomainExceeded();
-        if (x == WAD) return 0;
-
-        bool invert = x < WAD;
-        uint256 y = invert ? FullMath.mulDiv(WAD, WAD, x) : x;
-        uint256 k;
-
-        while (y >= 2 * WAD) {
-            y /= 2;
-            ++k;
-        }
-
-        int256 u = int256(y) - int256(WAD);
-        int256 result = u;
-        int256 term = u;
-
-        for (uint256 i = 2; i <= 8; ++i) {
-            term = (term * u) / int256(WAD);
-            int256 contribution = term / int256(i);
-            result = i % 2 == 0 ? result - contribution : result + contribution;
-        }
-
-        result += int256(k) * int256(LN_2);
-        return invert ? -result : result;
+        return Gaussian.ppf(int256(u));
     }
 
     function _sqrtPriceX96ToPriceWad(uint160 sqrtPriceX96) internal pure returns (uint256) {
@@ -655,5 +694,34 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
 
     function _maxReserve1(uint256 liquidity_) internal view returns (uint256) {
         return FullMath.mulDiv(logNormalParams.mean, liquidity_, WAD);
+    }
+
+    function _expWadToUint(int256 exponent) internal pure returns (uint256 result) {
+        if (exponent < MIN_EXPONENT_WAD || exponent > MAX_EXPONENT_WAD) revert ExponentOutOfBounds();
+
+        int256 expResult = SignedWadMath.expWad(exponent);
+        if (expResult <= 0) revert ExponentOutOfBounds();
+        result = uint256(expResult);
+    }
+
+    function _toInt256(uint256 value) internal pure returns (int256 result) {
+        if (value > uint256(type(int256).max)) revert Int256CastOverflow();
+        result = int256(value);
+    }
+
+    function _abs(int256 value) internal pure returns (uint256 result) {
+        if (value >= 0) return uint256(value);
+        result = uint256(-value);
+    }
+
+    function _requireReserve0Interior(uint256 reserve0_, uint256 liquidity_) internal pure {
+        if (liquidity_ <= 2 * EPS) revert DomainExceeded();
+        if (reserve0_ <= EPS || reserve0_ >= liquidity_ - EPS) revert DomainExceeded();
+    }
+
+    function _requireReserve1Interior(uint256 reserve1_, uint256 liquidity_) internal view {
+        uint256 maxReserve1_ = _maxReserve1(liquidity_);
+        if (maxReserve1_ <= 2 * EPS) revert DomainExceeded();
+        if (reserve1_ <= EPS || reserve1_ >= maxReserve1_ - EPS) revert DomainExceeded();
     }
 }
