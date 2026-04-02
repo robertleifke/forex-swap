@@ -1,5 +1,6 @@
 @openzeppelin/contracts/=node_modules/@openzeppelin/contracts/
 forge-std/=lib/v4-core/lib/forge-std/
+src/=lib/uniswap-hooks/src/
 uniswap-hooks/=lib/uniswap-hooks/
 v4-core/=lib/uniswap-hooks/lib/v4-core/
 v4-periphery/=lib/v4-periphery/

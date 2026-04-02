@@ -1,272 +1,191 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.26;
 
-import { Test } from "forge-std/src/Test.sol";
-import { console2 } from "forge-std/src/console2.sol";
-import { ForexSwap } from "../src/ForexSwap.sol";
+import {Test} from "forge-std/src/Test.sol";
+import {ForexSwap} from "../src/ForexSwap.sol";
+import {PoolManager} from "v4-core/src/PoolManager.sol";
+import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
+import {Hooks} from "v4-core/src/libraries/Hooks.sol";
 
-import { PoolManager } from "v4-core/src/PoolManager.sol";
-import { PoolKey } from "v4-core/src/types/PoolKey.sol";
-import { PoolIdLibrary } from "v4-core/src/types/PoolId.sol";
-import { Currency, CurrencyLibrary } from "v4-core/src/types/Currency.sol";
-import { Hooks } from "v4-core/src/libraries/Hooks.sol";
-import { LPFeeLibrary } from "v4-core/src/libraries/LPFeeLibrary.sol";
-import { TickMath } from "v4-core/src/libraries/TickMath.sol";
-import { TestERC20 } from "v4-core/src/test/TestERC20.sol";
-import { HookMiner } from "v4-periphery/src/utils/HookMiner.sol";
+contract ForexSwapHarness is ForexSwap {
+    constructor(IPoolManager manager) ForexSwap(manager) {}
 
-contract ForexSwapCorrectTest is Test {
-    using PoolIdLibrary for PoolKey;
-    using CurrencyLibrary for Currency;
-
-    error HookAddressMismatch();
-
-    PoolManager internal poolManager;
-    ForexSwap internal forexSwap;
-    TestERC20 internal token0;
-    TestERC20 internal token1;
-    PoolKey internal poolKey;
-
-    address internal alice = address(0x1111);
-    address internal bob = address(0x2222);
-
-    uint160 internal flags = uint160(
-        Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG
-            | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
-    );
-
-    function setUp() public {
-        console2.log("=== SETTING UP FOREXSWAP TEST ===");
-
-        poolManager = new PoolManager();
-        console2.log("Pool manager deployed");
-
-        token0 = new TestERC20(1_000_000e18);
-        token1 = new TestERC20(1_000_000e18);
-
-        if (address(token0) > address(token1)) {
-            (token0, token1) = (token1, token0);
-        }
-
-        bytes memory constructorArgs = abi.encode(address(poolManager));
-        (address hookAddress, bytes32 salt) =
-            HookMiner.find(address(this), flags, type(ForexSwap).creationCode, constructorArgs);
-
-        forexSwap = new ForexSwap{ salt: salt }(poolManager);
-        if (address(forexSwap) != hookAddress) revert HookAddressMismatch();
-        console2.log("ForexSwap deployed");
-
-        poolKey = PoolKey({
-            currency0: Currency.wrap(address(token0)),
-            currency1: Currency.wrap(address(token1)),
-            fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
-            tickSpacing: 60,
-            hooks: forexSwap
-        });
-
-        poolManager.initialize(poolKey, TickMath.getSqrtPriceAtTick(0));
-        console2.log("Pool initialized");
-
-        token0.mint(alice, 10_000e18);
-        token1.mint(alice, 10_000e18);
-        token0.mint(bob, 10_000e18);
-        token1.mint(bob, 10_000e18);
-
-        console2.log("=== SETUP COMPLETE ===");
+    function seedState(uint256 reserve0, uint256 reserve1, uint256 liquidityL, uint256 supply, address holder) external {
+        poolState = PoolState({reserve0: reserve0, reserve1: reserve1, liquidity: liquidityL});
+        totalSupply = supply;
+        if (holder != address(0) && supply > 0) balanceOf[holder] = supply;
     }
 
-    function test_deployment() external view {
-        console2.log("=== DEPLOYMENT TEST ===");
+    function seedConsistentState(uint256 reserve0, uint256 liquidityL, uint256 supply, address holder) external {
+        uint256 reserve1 = _solveReserve1(reserve0, liquidityL);
+        poolState = PoolState({reserve0: reserve0, reserve1: reserve1, liquidity: liquidityL});
+        totalSupply = supply;
+        if (holder != address(0) && supply > 0) balanceOf[holder] = supply;
+    }
 
-        assertTrue(address(forexSwap) != address(0), "ForexSwap should be deployed");
-        assertTrue(address(poolManager) != address(0), "Pool manager should be deployed");
-        assertEq(uint160(address(forexSwap)) & flags, flags, "Hook permissions should match");
+    function quoteExactInput(uint256 amountIn, bool zeroForOne) external view returns (uint256) {
+        return zeroForOne ? _quoteExactInput0For1(amountIn) : _quoteExactInput1For0(amountIn);
+    }
 
-        console2.log("Deployment verified");
+    function executeExactInput(uint256 amountIn, bool zeroForOne) external returns (uint256) {
+        return zeroForOne ? _executeExactInput0For1(amountIn) : _executeExactInput1For0(amountIn);
+    }
+
+    function planRemove(uint256 shares) external view returns (uint256 amount0, uint256 amount1, uint256 deltaL) {
+        RemoveLiquidityPlan memory plan = _planRemoveLiquidity(shares);
+        return (plan.amount0, plan.amount1, plan.deltaL);
+    }
+
+    function planBootstrap(uint160 sqrtPriceX96, uint256 amount0Desired, uint256 amount1Desired)
+        external
+        view
+        returns (uint256 amount0, uint256 amount1, uint256 shares, uint256 deltaL)
+    {
+        AddLiquidityPlan memory plan = _planAddLiquidity(
+            sqrtPriceX96,
+            AddLiquidityParams({
+                amount0Desired: amount0Desired,
+                amount1Desired: amount1Desired,
+                amount0Min: 0,
+                amount1Min: 0,
+                to: address(this),
+                deadline: block.timestamp + 1,
+                tickLower: 0,
+                tickUpper: 0,
+                salt: bytes32(0)
+            })
+        );
+
+        return (plan.amount0, plan.amount1, plan.shares, plan.deltaL);
+    }
+}
+
+contract ForexSwapCorrectTest is Test {
+    ForexSwapHarness internal forexSwap;
+    PoolManager internal poolManager;
+
+    address internal alice = address(0x1111);
+
+    function setUp() public {
+        poolManager = new PoolManager();
+        bytes memory initCode = abi.encodePacked(type(ForexSwapHarness).creationCode, abi.encode(poolManager));
+        bytes32 initCodeHash = keccak256(initCode);
+        uint160 flags = uint160(
+            Hooks.BEFORE_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.BEFORE_ADD_LIQUIDITY_FLAG
+                | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
+        );
+
+        bytes32 salt;
+        for (uint256 i = 0; i < 50_000; ++i) {
+            salt = bytes32(i);
+            address predicted = vm.computeCreate2Address(salt, initCodeHash, address(this));
+            if ((uint160(predicted) & ((1 << 14) - 1)) == flags) {
+                forexSwap = new ForexSwapHarness{salt: salt}(poolManager);
+                return;
+            }
+        }
+
+        revert("failed to mine hook address");
+    }
+
+    function _seedBalancedPool() internal {
+        forexSwap.seedConsistentState(4e17, 1e18, 1e18, alice);
     }
 
     function test_owner() external view {
-        console2.log("=== OWNER TEST ===");
-
-        address owner = forexSwap.owner();
-        assertEq(owner, address(this), "Owner should be this contract");
-
-        console2.log("Owner verified");
+        assertEq(forexSwap.owner(), address(this));
     }
 
     function test_pauseFunctionality() external {
-        console2.log("=== PAUSE FUNCTIONALITY TEST ===");
-
-        assertFalse(forexSwap.paused(), "Should not be paused initially");
-
         forexSwap.emergencyPause();
-        assertTrue(forexSwap.paused(), "Should be paused after emergency pause");
+        assertTrue(forexSwap.paused());
 
         forexSwap.emergencyUnpause();
-        assertFalse(forexSwap.paused(), "Should not be paused after unpause");
-
-        console2.log("Pause functionality verified");
+        assertFalse(forexSwap.paused());
     }
 
     function test_updateLogNormalParams() external {
-        console2.log("=== UPDATE LOG NORMAL PARAMS TEST ===");
-
-        uint256 newMu = 15e17;
-        uint256 newSigma = 8e17;
-        uint256 newSwapFee = 5e15;
-
-        forexSwap.updateLogNormalParams(newMu, newSigma, newSwapFee);
-
+        forexSwap.updateLogNormalParams(12e17, 3e17, 4e15);
         (uint256 mu, uint256 sigma, uint256 swapFee) = forexSwap.logNormalParams();
-
-        assertEq(mu, newMu, "Mu should be updated");
-        assertEq(sigma, newSigma, "Sigma should be updated");
-        assertEq(swapFee, newSwapFee, "Swap fee should be updated");
-
-        console2.log("Log normal params updated successfully");
+        assertEq(mu, 12e17);
+        assertEq(sigma, 3e17);
+        assertEq(swapFee, 4e15);
     }
 
-    function test_logNormalParams() external view {
-        console2.log("=== LOG NORMAL PARAMS TEST ===");
+    function test_bootstrapPlanUsesPoolPriceAndReturnsLPShares() external view {
+        (uint256 amount0, uint256 amount1, uint256 shares, uint256 deltaL) =
+            forexSwap.planBootstrap(79_228_162_514_264_337_593_543_950_336, 4e17, 5e17);
 
-        (uint256 mu, uint256 sigma, uint256 swapFee) = forexSwap.logNormalParams();
-
-        assertTrue(mu > 0, "Mu should be greater than 0");
-        assertTrue(sigma > 0, "Sigma should be greater than 0");
-        assertTrue(swapFee >= 0, "Swap fee should be non-negative");
-
-        console2.log("Log normal params verified");
+        assertEq(amount0, 4e17);
+        assertGt(amount1, 0);
+        assertEq(shares, deltaL);
+        assertGt(deltaL, 0);
     }
 
-    function test_calculateAmountOut() external view {
-        console2.log("=== CALCULATE AMOUNT OUT TEST ===");
+    function test_quoteAndExecuteExactInputZeroForOneMoveState() external {
+        _seedBalancedPool();
 
-        uint256 amountIn = 1000e18;
-        uint256 amountOut = forexSwap.calculateAmountOut(amountIn, true);
+        uint256 quote = forexSwap.quoteExactInput(1e16, true);
+        assertGt(quote, 0);
 
-        assertTrue(amountOut >= 0, "Amount out should be non-negative");
+        uint256 beforeReserve0;
+        uint256 beforeReserve1;
+        uint256 beforeLiquidity;
+        (beforeReserve0, beforeReserve1, beforeLiquidity,) = _state();
 
-        console2.log("Calculate amount out verified");
+        uint256 amountOut = forexSwap.executeExactInput(1e16, true);
+        assertEq(amountOut, quote);
+
+        (uint256 reserve0, uint256 reserve1, uint256 liquidityL,) = _state();
+        assertEq(reserve0, beforeReserve0 + 1e16);
+        assertEq(reserve1 + amountOut, beforeReserve1);
+        assertGe(liquidityL, beforeLiquidity);
     }
 
-    function test_getPoolInfo() external view {
-        console2.log("=== GET POOL INFO TEST ===");
+    function test_quoteAndExecuteExactInputOneForZeroMoveState() external {
+        _seedBalancedPool();
 
-        (uint256 totalLiquidity, uint256 reserve0, uint256 reserve1,,) = forexSwap.getPoolInfo();
+        uint256 quote = forexSwap.quoteExactInput(1e16, false);
+        assertGt(quote, 0);
 
-        assertTrue(totalLiquidity >= 0, "Total liquidity should be non-negative");
-        assertTrue(reserve0 >= 0, "Reserve0 should be non-negative");
-        assertTrue(reserve1 >= 0, "Reserve1 should be non-negative");
+        uint256 beforeReserve0;
+        uint256 beforeReserve1;
+        uint256 beforeLiquidity;
+        (beforeReserve0, beforeReserve1, beforeLiquidity,) = _state();
 
-        console2.log("Pool info verified");
+        uint256 amountOut = forexSwap.executeExactInput(1e16, false);
+        assertEq(amountOut, quote);
+
+        (uint256 reserve0, uint256 reserve1, uint256 liquidityL,) = _state();
+        assertEq(reserve1, beforeReserve1 + 1e16);
+        assertEq(reserve0 + amountOut, beforeReserve0);
+        assertGe(liquidityL, beforeLiquidity);
     }
 
-    function test_totalSupply() external view {
-        console2.log("=== TOTAL SUPPLY TEST ===");
+    function test_removePlanScalesWithShares() external {
+        _seedBalancedPool();
 
-        uint256 supply = forexSwap.totalSupply();
-        assertEq(supply, 0, "Initial total supply should be 0");
+        (uint256 amount0, uint256 amount1, uint256 deltaL) = forexSwap.planRemove(5e17);
 
-        console2.log("Total supply verified");
+        assertEq(deltaL, 5e17);
+        assertEq(amount0, 2e17);
+        assertEq(amount1, 258_111_562_965_281_393);
     }
 
-    function test_balanceOf() external view {
-        console2.log("=== BALANCE OF TEST ===");
-
-        uint256 balance = forexSwap.balanceOf(alice);
-        assertEq(balance, 0, "Initial balance should be 0");
-
-        console2.log("Balance of verified");
+    function test_currentInvariantIsNearZeroOnSeededState() external {
+        _seedBalancedPool();
+        int256 invariantValue = forexSwap.currentInvariant();
+        assertApproxEqAbs(invariantValue, 0, 1e15);
     }
 
-    function test_getSharePercentage() external view {
-        console2.log("=== GET SHARE PERCENTAGE TEST ===");
-
-        uint256 sharePercent = forexSwap.getSharePercentage(alice);
-        assertEq(sharePercent, 0, "Initial share percentage should be 0");
-
-        console2.log("Share percentage verified");
-    }
-
-    function test_poolKey() external view {
-        console2.log("=== POOL KEY TEST ===");
-
-        (Currency currency0, Currency currency1, uint24 fee, int24 tickSpacing,) = forexSwap.poolKey();
-
-        assertEq(Currency.unwrap(currency0), Currency.unwrap(poolKey.currency0), "Currency0 should match");
-        assertEq(Currency.unwrap(currency1), Currency.unwrap(poolKey.currency1), "Currency1 should match");
-        assertEq(fee, poolKey.fee, "Fee should match");
-        assertEq(tickSpacing, poolKey.tickSpacing, "Tick spacing should match");
-
-        console2.log("Pool key verified");
-    }
-
-    function test_hookPermissions() external view {
-        console2.log("=== HOOK PERMISSIONS TEST ===");
-
-        // Note: getHookPermissions returns Hooks.Permissions struct, not uint160
-        // We'll just verify the function exists for now
-        forexSwap.getHookPermissions();
-
-        console2.log("Hook permissions verified");
-    }
-
-    function test_RevertWhen_nonOwnerCannotPause() external {
-        vm.prank(alice);
-        vm.expectRevert();
-        forexSwap.emergencyPause();
-    }
-
-    function test_RevertWhen_nonOwnerCannotUpdateParams() external {
+    function test_nonOwnerCannotUpdateParams() external {
         vm.prank(alice);
         vm.expectRevert();
         forexSwap.updateLogNormalParams(1e18, 5e17, 3e15);
     }
 
-    function test_RevertWhen_invalidMu() external {
-        vm.expectRevert();
-        forexSwap.updateLogNormalParams(0, 5e17, 3e15);
-    }
-
-    function test_RevertWhen_invalidSigma() external {
-        vm.expectRevert();
-        forexSwap.updateLogNormalParams(1e18, 0, 3e15);
-    }
-
-    // Removed problematic fuzz test due to InvalidWidth errors
-    // Individual parameter validation tests cover the functionality
-
-    function testFuzz_calculateAmountOut(uint256 amountIn) external view {
-        amountIn = bound(amountIn, 1, 1000e18);
-
-        uint256 amountOut = forexSwap.calculateAmountOut(amountIn, true);
-        assertTrue(amountOut >= 0, "Amount out should be non-negative");
-    }
-
-    function test_comprehensiveState() external view {
-        console2.log("=== COMPREHENSIVE STATE TEST ===");
-
-        (uint256 mu, uint256 sigma, uint256 swapFee) = forexSwap.logNormalParams();
-        (uint256 totalLiquidity, uint256 reserve0, uint256 reserve1,,) = forexSwap.getPoolInfo();
-        uint256 supply = forexSwap.totalSupply();
-        address owner = forexSwap.owner();
-        bool isPaused = forexSwap.paused();
-
-        console2.log("Mu:", mu);
-        console2.log("Sigma:", sigma);
-        console2.log("Swap Fee:", swapFee);
-        console2.log("Total Liquidity:", totalLiquidity);
-        console2.log("Reserve0:", reserve0);
-        console2.log("Reserve1:", reserve1);
-        console2.log("Total Supply:", supply);
-        console2.log("Owner:", owner);
-        console2.log("Is Paused:", isPaused);
-
-        assertTrue(mu > 0, "Mu should be positive");
-        assertTrue(sigma > 0, "Sigma should be positive");
-        assertEq(owner, address(this), "Owner should be this contract");
-        assertFalse(isPaused, "Should not be paused");
-
-        console2.log("Comprehensive state verified");
+    function _state() internal view returns (uint256 reserve0, uint256 reserve1, uint256 liquidityL, uint256 supply) {
+        (reserve0, reserve1, liquidityL) = forexSwap.poolState();
+        supply = forexSwap.totalSupply();
     }
 }

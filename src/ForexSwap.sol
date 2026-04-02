@@ -1,51 +1,28 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.26;
 
-import { BaseCustomCurve } from "uniswap-hooks/src/base/BaseCustomCurve.sol";
-import { IPoolManager } from "v4-core/src/interfaces/IPoolManager.sol";
-import { BalanceDelta } from "v4-core/src/types/BalanceDelta.sol";
-import { Math } from "v4-core/lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
-import { Ownable } from "v4-core/lib/openzeppelin-contracts/contracts/access/Ownable.sol";
-import { Pausable } from "v4-core/lib/openzeppelin-contracts/contracts/utils/Pausable.sol";
-import { ReentrancyGuard } from "v4-core/lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
+import {BaseCustomCurve} from "uniswap-hooks/src/base/BaseCustomCurve.sol";
+import {IPoolManager} from "v4-core/src/interfaces/IPoolManager.sol";
+import {BalanceDelta} from "v4-core/src/types/BalanceDelta.sol";
+import {Math} from "v4-core/lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
+import {Ownable} from "v4-core/lib/openzeppelin-contracts/contracts/access/Ownable.sol";
+import {Pausable} from "v4-core/lib/openzeppelin-contracts/contracts/utils/Pausable.sol";
+import {ReentrancyGuard} from "v4-core/lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
+import {FullMath} from "v4-core/src/libraries/FullMath.sol";
+import {FixedPoint96} from "v4-core/src/libraries/FixedPoint96.sol";
+import {StateLibrary} from "v4-core/src/libraries/StateLibrary.sol";
+import {PoolIdLibrary} from "v4-core/src/types/PoolId.sol";
+import {PoolKey} from "v4-core/src/types/PoolKey.sol";
 
 /**
  * @title Forex Swap
- * @author Robert Leifke
- * @notice A Uniswap V4 hook implementing a log-normal distribution-based market maker
- * @dev This contract implements a custom trading curve based on log-normal distribution principles,
- *      inspired by the DFMM (Dynamic Function Market Maker) protocol by Primitive Finance.
- *
- * ## LogNormal Market Maker Overview
- *
- * The log-normal market maker uses statistical modeling to create more realistic price discovery
- * for assets that exhibit exponential growth patterns and volatility clustering. Unlike traditional
- * constant product (xy=k) AMMs, this implementation incorporates:
- *
- * ### Key Features:
- * 1. **Log-Normal Distribution**: Models asset prices using log-normal distribution properties
- * 2. **Volatility-Aware Pricing**: Incorporates volatility parameters for dynamic pricing
- * 3. **Mean Reversion**: Uses configurable mean parameters for price anchoring
- * 4. **Conservative Implementation**: Uses additive adjustments instead of full exponential pricing
- *
- * ### Mathematical Foundation:
- * The core pricing is based on:
- * - Base calculation using constant product formula
- * - Price adjustments using inverse normal CDF approximations
- * - Volatility terms calculated from distribution width parameters
- * - Conservative bounds to prevent extreme price movements
- *
- * ### Parameters:
- * - `mean`: The mean of the log-normal distribution (price anchor)
- * - `width`: Standard deviation/volatility parameter
- * - `swapFee`: Fee percentage applied to trades
- *
- * ### Usage:
- * This hook can be deployed on Uniswap V4 pools to provide more sophisticated pricing
- * for assets that benefit from statistical modeling rather than simple geometric means.
+ * @notice Uniswap v4 hook implementing a stateful approximation of Primitive's LogNormal DFMM.
+ * @dev The hook owns the market-maker state. Uniswap v4 is used for settlement and flash accounting.
  */
 contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
-    // Custom errors
+    using PoolIdLibrary for PoolKey;
+    using StateLibrary for IPoolManager;
+
     error InvalidMean();
     error InvalidWidth();
     error FeeTooHigh();
@@ -56,335 +33,164 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     error DeadlineExpired();
     error MinAmountNotMet();
     error MaxAmountExceeded();
+    error DomainExceeded();
+    error UninitializedMarket();
 
-    // Events
     event ParametersUpdated(uint256 newMean, uint256 newWidth, uint256 newSwapFee);
     event LiquidityAdded(address indexed provider, uint256 amount0, uint256 amount1, uint256 shares);
     event LiquidityRemoved(address indexed provider, uint256 amount0, uint256 amount1, uint256 shares);
-    event SwapExecuted(address indexed trader, bool zeroForOne, uint256 amountIn, uint256 amountOut, uint256 fee);
+    event SwapExecuted(address indexed trader, bool zeroForOne, uint256 amountIn, uint256 amountOut, uint256 feeAmount);
     event EmergencyPaused(address indexed admin);
     event EmergencyUnpaused(address indexed admin);
 
-    mapping(address account => uint256 balance) public balanceOf;
-    uint256 public totalSupply;
-
-    /**
-     * @notice Parameters for the log-normal distribution curve
-     * @dev All parameters are scaled by 1e18 (WAD precision)
-     */
     struct LogNormalParams {
-        uint256 mean; // Mean of log-normal distribution - acts as price anchor around 1.0
-        uint256 width; // Standard deviation/volatility - controls price sensitivity (0.1-2.0)
-        uint256 swapFee; // Swap fee percentage - trading fee applied to swaps (0-10%)
+        uint256 mean;
+        uint256 width;
+        uint256 swapFee;
     }
 
-    // Default parameters for log-normal curve
-    LogNormalParams public logNormalParams = LogNormalParams({
-        mean: 1e18, // Mean = 1.0
-        width: 2e17, // Width = 0.2 (20% volatility)
-        swapFee: 3e15 // Fee = 0.3%
-     });
+    struct PoolState {
+        uint256 reserve0;
+        uint256 reserve1;
+        uint256 liquidity;
+    }
 
-    // Constants for mathematical calculations
+    struct AddLiquidityPlan {
+        uint256 amount0;
+        uint256 amount1;
+        uint256 shares;
+        uint256 deltaL;
+    }
+
+    struct RemoveLiquidityPlan {
+        uint256 amount0;
+        uint256 amount1;
+        uint256 shares;
+        uint256 deltaL;
+    }
+
     uint256 private constant WAD = 1e18;
     uint256 private constant HALF_WAD = 5e17;
-    uint256 private constant LN_2 = 693_147_180_559_945_309; // ln(2) * 1e18
-    uint256 private constant E = 2_718_281_828_459_045_235; // e * 1e18
+    uint256 private constant LN_2 = 693_147_180_559_945_309;
+    uint256 private constant MAX_EXP_INPUT = 20e18;
+    uint256 private constant Q192 = FixedPoint96.Q96 * FixedPoint96.Q96;
+    uint256 private constant LOGISTIC_A = 1_702_000_000_000_000_000;
+    uint256 private constant SEARCH_STEPS = 64;
 
-    constructor(IPoolManager _poolManager) BaseCustomCurve(_poolManager) Ownable(msg.sender) { }
+    mapping(address account => uint256 balance) public balanceOf;
+    uint256 public totalSupply;
+    LogNormalParams public logNormalParams = LogNormalParams({mean: 1e18, width: 2e17, swapFee: 3e15});
+    PoolState public poolState;
 
-    function echo(uint256 value) external pure returns (uint256) {
-        return value;
-    }
+    constructor(IPoolManager _poolManager) BaseCustomCurve(_poolManager) Ownable(msg.sender) {}
 
-    // Required implementation for custom curve logic
     function _getUnspecifiedAmount(IPoolManager.SwapParams calldata swapParams)
         internal
-        view
         override
         whenNotPaused
         returns (uint256 unspecifiedAmount)
     {
+        if (poolState.liquidity == 0) revert UninitializedMarket();
+
         bool exactInput = swapParams.amountSpecified < 0;
         uint256 specifiedAmount =
             exactInput ? uint256(-swapParams.amountSpecified) : uint256(swapParams.amountSpecified);
 
-        // Use minimal safe calculation to prevent overflow
-        if (exactInput) {
-            // For exact input, return a smaller amount to prevent overflow
-            // Use a simple 1:0.95 ratio (5% spread)
-            unspecifiedAmount = (specifiedAmount * 95) / 100;
-        } else {
-            // For exact output, require a bit more input
-            // Use a simple 1:1.05 ratio (5% spread)
-            unspecifiedAmount = (specifiedAmount * 105) / 100;
-        }
+        if (specifiedAmount == 0) revert ZeroAmount();
 
-        // Apply swap fee (keep it simple)
         if (exactInput) {
-            unspecifiedAmount = (unspecifiedAmount * (WAD - logNormalParams.swapFee)) / WAD;
+            unspecifiedAmount = swapParams.zeroForOne
+                ? _executeExactInput0For1(specifiedAmount)
+                : _executeExactInput1For0(specifiedAmount);
         } else {
-            unspecifiedAmount = (unspecifiedAmount * WAD) / (WAD - logNormalParams.swapFee);
-        }
-
-        // Safety check to prevent huge numbers
-        if (unspecifiedAmount > specifiedAmount * 2) {
-            unspecifiedAmount = specifiedAmount;
+            unspecifiedAmount = swapParams.zeroForOne
+                ? _executeExactOutput0For1(specifiedAmount)
+                : _executeExactOutput1For0(specifiedAmount);
         }
     }
 
-    /**
-     * @notice Computes output amount for exact input using log-normal distribution
-     * @dev Uses a conservative approach combining constant product base with log-normal adjustments
-     * @param amountIn The input amount specified by the trader
-     * @param reserveIn Current reserve of input token
-     * @param reserveOut Current reserve of output token
-     * @return amountOut The calculated output amount
-     */
-    function _computeAmountOut(
-        uint256 amountIn,
-        uint256 reserveIn,
-        uint256 reserveOut,
-        uint256, /* totalLiquidity */
-        bool /* zeroForOne */
-    )
+    function _getAddLiquidity(uint160 sqrtPriceX96, AddLiquidityParams memory params)
+        internal
+        override
+        returns (bytes memory, uint256)
+    {
+        AddLiquidityPlan memory plan = _planAddLiquidity(sqrtPriceX96, params);
+        return (abi.encode(int128(uint128(plan.amount0)), int128(uint128(plan.amount1))), plan.shares);
+    }
+
+    function _getRemoveLiquidity(RemoveLiquidityParams memory params)
+        internal
+        override
+        returns (bytes memory, uint256)
+    {
+        RemoveLiquidityPlan memory plan = _planRemoveLiquidity(params.liquidity);
+        return (abi.encode(-int128(uint128(plan.amount0)), -int128(uint128(plan.amount1))), plan.shares);
+    }
+
+    function _getAmountIn(AddLiquidityParams memory params)
         internal
         view
-        returns (uint256 amountOut)
+        override
+        returns (uint256 amount0, uint256 amount1, uint256 shares)
     {
-        if (amountIn == 0 || reserveIn == 0 || reserveOut == 0) return 0;
-
-        // Use simplified calculation to prevent overflow
-        uint256 baseAmountOut = (amountIn * reserveOut) / (reserveIn + amountIn);
-
-        // Apply small log-normal adjustment to prevent large price impacts
-        uint256 adjustment = logNormalParams.width / 10; // Small adjustment
-        if (adjustment > WAD / 20) adjustment = WAD / 20; // Cap at 5%
-
-        uint256 priceMultiplier = WAD + adjustment;
-        amountOut = (baseAmountOut * WAD) / priceMultiplier;
-
-        // Apply swap fee
-        amountOut = (amountOut * (WAD - logNormalParams.swapFee)) / WAD;
-
-        // Safety bounds
-        if (amountOut > reserveOut - 1) {
-            amountOut = reserveOut - 1;
-        }
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolKey.toId());
+        AddLiquidityPlan memory plan = _planAddLiquidity(sqrtPriceX96, params);
+        return (plan.amount0, plan.amount1, plan.shares);
     }
 
-    /**
-     * @notice Computes input amount needed for exact output using log-normal distribution
-     * @dev Reverse calculation from _computeAmountOut with fee adjustments
-     * @param amountOut The desired output amount
-     * @param reserveIn Current reserve of input token
-     * @param reserveOut Current reserve of output token
-     * @return amountIn The calculated input amount needed
-     */
-    function _computeAmountIn(
-        uint256 amountOut,
-        uint256 reserveIn,
-        uint256 reserveOut,
-        uint256, /* totalLiquidity */
-        bool /* zeroForOne */
-    )
+    function _getAmountOut(RemoveLiquidityParams memory params)
         internal
         view
-        returns (uint256 amountIn)
+        override
+        returns (uint256 amount0, uint256 amount1, uint256 shares)
     {
-        if (amountOut == 0 || reserveIn == 0 || reserveOut == 0 || amountOut >= reserveOut) {
-            return type(uint256).max; // Invalid trade
-        }
-
-        // Use simplified calculation to prevent overflow
-        uint256 baseAmountIn = (amountOut * reserveIn) / (reserveOut - amountOut);
-
-        // Apply small log-normal adjustment
-        uint256 adjustment = logNormalParams.width / 10; // Small adjustment
-        if (adjustment > WAD / 20) adjustment = WAD / 20; // Cap at 5%
-
-        uint256 priceMultiplier = WAD + adjustment;
-        amountIn = (baseAmountIn * priceMultiplier) / WAD;
-
-        // Apply swap fee
-        amountIn = (amountIn * WAD) / (WAD - logNormalParams.swapFee);
+        RemoveLiquidityPlan memory plan = _planRemoveLiquidity(params.liquidity);
+        return (plan.amount0, plan.amount1, plan.shares);
     }
 
-    /**
-     * @notice Approximates the inverse normal cumulative distribution function Φ^(-1)(u)
-     * @dev Uses a simplified linear approximation for computational efficiency on-chain
-     *      Maps input range [0,1] to approximate standard normal range [-2,2]
-     * @param u Input value in range [0, WAD] representing probability
-     * @return Approximated inverse normal CDF value, scaled by WAD
-     */
-    function _approximateInverseNormalCDF(uint256 u) internal pure returns (int256) {
-        if (u == 0) return -3 * int256(WAD); // Approximately -3 standard deviations
-        if (u >= WAD) return 3 * int256(WAD); // Approximately +3 standard deviations
+    function _mint(
+        AddLiquidityParams memory params,
+        BalanceDelta,
+        BalanceDelta,
+        uint256 shares
+    ) internal override nonReentrant whenNotPaused {
+        if (shares == 0) revert ZeroAmount();
 
-        // Improved approximation using rational approximation
-        // For u in [0,1], approximate Φ^(-1)(u) using linear transformation
-        // that maps [0, 0.5, 1] to [-2, 0, 2] for better range
-        int256 centered = int256(u) - int256(HALF_WAD);
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolKey.toId());
+        AddLiquidityPlan memory plan = _planAddLiquidity(sqrtPriceX96, params);
 
-        // Scale to approximate range [-2, 2] for standard normal
-        return (centered * 4) / int256(WAD);
+        poolState.reserve0 += plan.amount0;
+        poolState.reserve1 += plan.amount1;
+        poolState.liquidity += plan.deltaL;
+
+        balanceOf[params.to] += shares;
+        totalSupply += shares;
+
+        emit LiquidityAdded(params.to, plan.amount0, plan.amount1, shares);
     }
 
-    /**
-     * @notice Approximates e^x using truncated Taylor series expansion
-     * @dev Uses first 6 terms of Taylor series for improved accuracy
-     *      Formula: e^x ≈ 1 + x + x²/2! + x³/3! + x⁴/4! + x⁵/5!
-     * @param x Input value scaled by WAD
-     * @return Approximated exponential value, scaled by WAD
-     */
-    function _approximateExp(uint256 x) internal pure returns (uint256) {
-        if (x == 0) return WAD;
-        if (x > 20 * WAD) return type(uint256).max; // Overflow protection
+    function _burn(
+        RemoveLiquidityParams memory,
+        BalanceDelta,
+        BalanceDelta,
+        uint256 shares
+    ) internal override nonReentrant whenNotPaused {
+        if (shares == 0) revert ZeroAmount();
+        if (balanceOf[msg.sender] < shares) revert InsufficientLiquidity();
 
-        // Use Taylor series: e^x = 1 + x + x²/2! + x³/3! + ...
-        uint256 result = WAD; // 1
-        uint256 term = x; // x
+        RemoveLiquidityPlan memory plan = _planRemoveLiquidity(shares);
 
-        result += term; // 1 + x
+        balanceOf[msg.sender] -= shares;
+        totalSupply -= shares;
 
-        term = (term * x) / (2 * WAD); // x²/2!
-        result += term;
+        poolState.reserve0 -= plan.amount0;
+        poolState.reserve1 -= plan.amount1;
+        poolState.liquidity -= plan.deltaL;
 
-        term = (term * x) / (3 * WAD); // x³/3!
-        result += term;
-
-        term = (term * x) / (4 * WAD); // x⁴/4!
-        result += term;
-
-        term = (term * x) / (5 * WAD); // x⁵/5!
-        result += term;
-
-        term = (term * x) / (6 * WAD); // x⁶/6!
-        result += term;
-
-        return result;
+        emit LiquidityRemoved(msg.sender, plan.amount0, plan.amount1, shares);
     }
 
-    /**
-     * @notice Approximates natural logarithm ln(x) using series expansion
-     * @dev Uses the series ln(1+u) = u - u²/2 + u³/3 - u⁴/4 for |u| < 1
-     * @param x Input value scaled by WAD (must be > 0)
-     * @return Approximated natural logarithm, scaled by WAD
-     */
-    function _approximateLn(uint256 x) internal pure returns (int256) {
-        if (x == 0) return type(int256).min; // ln(0) = -∞
-        if (x == WAD) return 0; // ln(1) = 0
-
-        // For x close to 1, use ln(1+u) series where u = x-1
-        if (x > WAD / 2 && x < 2 * WAD) {
-            int256 u = int256(x) - int256(WAD); // x - 1
-            int256 result = u;
-
-            // -u²/2
-            int256 term = -(u * u) / (2 * int256(WAD));
-            result += term;
-
-            // u³/3
-            term = (u * u * u) / (3 * int256(WAD) * int256(WAD));
-            result += term;
-
-            // -u⁴/4
-            term = -(u * u * u * u) / (4 * int256(WAD) * int256(WAD) * int256(WAD));
-            result += term;
-
-            return result;
-        }
-
-        // For other values, use a simpler approximation
-        // ln(x) ≈ 2 * ((x-1)/(x+1)) for x > 0
-        int256 numerator = int256(x) - int256(WAD);
-        int256 denominator = int256(x) + int256(WAD);
-        return (2 * numerator * int256(WAD)) / denominator;
-    }
-
-    /**
-     * @notice Improved inverse normal CDF approximation using rational function
-     * @dev Uses Beasley-Springer-Moro algorithm approximation for better accuracy
-     * @param u Input value in range [0, WAD] representing probability
-     * @return Approximated inverse normal CDF value, scaled by WAD
-     */
-    function _improvedInverseNormalCDF(uint256 u) internal pure returns (int256) {
-        if (u == 0) return -4 * int256(WAD); // Approximately -4 standard deviations
-        if (u >= WAD) return 4 * int256(WAD); // Approximately +4 standard deviations
-        if (u == HALF_WAD) return 0; // Φ^(-1)(0.5) = 0
-
-        // Use symmetry: if u > 0.5, compute -Φ^(-1)(1-u)
-        bool useSymmetry = u > HALF_WAD;
-        uint256 p = useSymmetry ? WAD - u : u;
-
-        // Rational approximation coefficients (scaled by appropriate powers of WAD)
-        // This is a simplified version of the Beasley-Springer-Moro algorithm
-        uint256 a0 = 2_515_517; // scaled coefficient
-        uint256 a1 = 802_853; // scaled coefficient
-        uint256 a2 = 103_328; // scaled coefficient
-
-        uint256 b1 = 1_432_788; // scaled coefficient
-        uint256 b2 = 189_269; // scaled coefficient
-        uint256 b3 = 99_348; // scaled coefficient
-
-        // Convert p to t = sqrt(-2*ln(p))
-        uint256 tSquared = 2 * uint256(-_approximateLn(p)); // 2 * (-ln(p))
-        uint256 t = Math.sqrt(tSquared * WAD); // sqrt(2 * (-ln(p)))
-
-        // Rational approximation: (a0 + a1*t + a2*t²) / (1 + b1*t + b2*t² + b3*t³)
-        uint256 numerator = a0 + (a1 * t) / WAD + (a2 * t * t) / (WAD * WAD);
-        uint256 denominator = WAD + (b1 * t) / WAD + (b2 * t * t) / (WAD * WAD) + (b3 * t * t * t) / (WAD * WAD * WAD);
-
-        int256 result = int256((numerator * WAD) / denominator);
-        result = -result; // Because we want Φ^(-1)(p) and this gives us the negative
-
-        return useSymmetry ? -result : result;
-    }
-
-    /**
-     * @notice Calculates square root using Babylonian method
-     * @dev More accurate than simple approximation for large numbers
-     * @param x Input value scaled by WAD
-     * @return Square root of x, scaled by WAD
-     */
-    function _sqrt(uint256 x) internal pure returns (uint256) {
-        if (x == 0) return 0;
-        if (x == WAD) return WAD;
-
-        // Use OpenZeppelin's sqrt for base calculation
-        uint256 baseResult = Math.sqrt(x * WAD);
-        return baseResult;
-    }
-
-    /**
-     * @notice Internal view function to calculate amount out for given input
-     * @param amountIn Input amount
-     * @param zeroForOne Direction of swap
-     * @return amountOut Expected output amount
-     */
-    function _calculateAmountOutView(uint256 amountIn, bool zeroForOne) internal view returns (uint256 amountOut) {
-        if (amountIn == 0) return 0;
-
-        // Use simplified calculation based on our log-normal curve
-        uint256 reserveIn = 1000e18; // Simplified reserve assumption
-        uint256 reserveOut = 1000e18;
-        uint256 totalLiquidity = Math.sqrt(reserveIn * reserveOut);
-
-        return _computeAmountOut(amountIn, reserveIn, reserveOut, totalLiquidity, zeroForOne);
-    }
-
-    /**
-     * @notice Updates the log-normal distribution parameters
-     * @dev Only callable by owner with proper validation and time delay consideration
-     * @param newMean New mean parameter (1e18 = 1.0, valid range: 0.01-100.0)
-     * @param newWidth New volatility/width parameter (1e18 = 1.0, valid range: 0.01-2.0)
-     * @param newSwapFee New swap fee (1e18 = 100%, valid range: 0-10%)
-     */
-    function updateLogNormalParams(
-        uint256 newMean,
-        uint256 newWidth,
-        uint256 newSwapFee
-    )
+    function updateLogNormalParams(uint256 newMean, uint256 newWidth, uint256 newSwapFee)
         external
         onlyOwner
         whenNotPaused
@@ -400,337 +206,454 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         emit ParametersUpdated(newMean, newWidth, newSwapFee);
     }
 
-    /**
-     * @notice Public wrapper for testing the log normal curve logic
-     * @dev This function exposes the internal curve calculation for testing purposes
-     * @param swapParams The swap parameters including amount and direction
-     * @return The calculated unspecified amount based on log-normal curve
-     */
-    function getUnspecifiedAmountPublic(IPoolManager.SwapParams calldata swapParams)
-        external
-        view
-        whenNotPaused
-        returns (uint256)
-    {
-        return _getUnspecifiedAmount(swapParams);
-    }
-
-    /**
-     * @notice Emergency pause function to halt all operations
-     * @dev Only callable by owner in case of emergency
-     */
     function emergencyPause() external onlyOwner {
         _pause();
         emit EmergencyPaused(msg.sender);
     }
 
-    /**
-     * @notice Unpause function to resume operations
-     * @dev Only callable by owner after resolving emergency
-     */
     function emergencyUnpause() external onlyOwner {
         _unpause();
         emit EmergencyUnpaused(msg.sender);
     }
 
-    /**
-     * @notice Get current liquidity provider share percentage
-     * @param provider Address of the liquidity provider
-     * @return sharePercentage Percentage of pool owned (scaled by 1e18)
-     */
     function getSharePercentage(address provider) external view returns (uint256 sharePercentage) {
         if (totalSupply == 0) return 0;
-        return (balanceOf[provider] * WAD) / totalSupply;
+        return FullMath.mulDiv(balanceOf[provider], WAD, totalSupply);
     }
 
-    /**
-     * @notice Add liquidity with slippage protection
-     * @param amount0Desired Desired amount of token0
-     * @param amount1Desired Desired amount of token1
-     * @param amount0Min Minimum amount of token0 (slippage protection)
-     * @param amount1Min Minimum amount of token1 (slippage protection)
-     * @param deadline Transaction deadline
-     * @return amount0 Actual amount of token0 added
-     * @return amount1 Actual amount of token1 added
-     * @return shares Liquidity shares minted
-     */
+    // Convenience quote wrapper. Execution still happens through the inherited addLiquidity/removeLiquidity entrypoints.
     function addLiquidityWithSlippage(
         uint256 amount0Desired,
         uint256 amount1Desired,
         uint256 amount0Min,
         uint256 amount1Min,
         uint256 deadline
-    )
-        external
-        nonReentrant
-        whenNotPaused
-        returns (uint256 amount0, uint256 amount1, uint256 shares)
-    {
+    ) external view whenNotPaused returns (uint256 amount0, uint256 amount1, uint256 shares) {
         if (block.timestamp > deadline) revert DeadlineExpired();
 
-        AddLiquidityParams memory params = AddLiquidityParams({
-            amount0Desired: amount0Desired,
-            amount1Desired: amount1Desired,
-            amount0Min: amount0Min,
-            amount1Min: amount1Min,
-            to: msg.sender,
-            deadline: deadline,
-            tickLower: 0,
-            tickUpper: 0,
-            salt: bytes32(0)
-        });
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolKey.toId());
+        AddLiquidityPlan memory plan = _planAddLiquidity(
+            sqrtPriceX96,
+            AddLiquidityParams({
+                amount0Desired: amount0Desired,
+                amount1Desired: amount1Desired,
+                amount0Min: amount0Min,
+                amount1Min: amount1Min,
+                to: msg.sender,
+                deadline: deadline,
+                tickLower: 0,
+                tickUpper: 0,
+                salt: bytes32(0)
+            })
+        );
 
-        (amount0, amount1, shares) = _getAmountIn(params);
-
-        if (amount0 < amount0Min) revert MinAmountNotMet();
-        if (amount1 < amount1Min) revert MinAmountNotMet();
-
-        return (amount0, amount1, shares);
+        if (plan.amount0 < amount0Min || plan.amount1 < amount1Min) revert MinAmountNotMet();
+        return (plan.amount0, plan.amount1, plan.shares);
     }
 
-    /**
-     * @notice Remove liquidity with slippage protection
-     * @param shares Amount of liquidity shares to burn
-     * @param amount0Min Minimum amount of token0 to receive
-     * @param amount1Min Minimum amount of token1 to receive
-     * @param deadline Transaction deadline
-     * @return amount0 Amount of token0 received
-     * @return amount1 Amount of token1 received
-     */
     function removeLiquidityWithSlippage(
         uint256 shares,
         uint256 amount0Min,
         uint256 amount1Min,
         uint256 deadline
-    )
-        external
-        nonReentrant
-        whenNotPaused
-        returns (uint256 amount0, uint256 amount1)
-    {
+    ) external view whenNotPaused returns (uint256 amount0, uint256 amount1) {
         if (block.timestamp > deadline) revert DeadlineExpired();
         if (balanceOf[msg.sender] < shares) revert InsufficientLiquidity();
 
-        RemoveLiquidityParams memory params = RemoveLiquidityParams({
-            liquidity: shares,
-            amount0Min: amount0Min,
-            amount1Min: amount1Min,
-            deadline: deadline,
-            tickLower: 0,
-            tickUpper: 0,
-            salt: bytes32(0)
-        });
-
-        (amount0, amount1,) = _getAmountOut(params);
-
-        if (amount0 < amount0Min) revert MinAmountNotMet();
-        if (amount1 < amount1Min) revert MinAmountNotMet();
-
-        return (amount0, amount1);
+        RemoveLiquidityPlan memory plan = _planRemoveLiquidity(shares);
+        if (plan.amount0 < amount0Min || plan.amount1 < amount1Min) revert MinAmountNotMet();
+        return (plan.amount0, plan.amount1);
     }
 
-    /**
-     * @notice Swap with slippage protection
-     * @param amountIn Amount of input tokens
-     * @param amountOutMin Minimum amount of output tokens
-     * @param zeroForOne Direction of swap
-     * @param deadline Transaction deadline
-     * @return amountOut Amount of output tokens received
-     */
+    // Convenience quote wrapper. Execution happens via PoolManager.swap.
     function swapWithSlippage(
         uint256 amountIn,
         uint256 amountOutMin,
         bool zeroForOne,
         uint256 deadline
-    )
-        external
-        nonReentrant
-        whenNotPaused
-        returns (uint256 amountOut)
-    {
+    ) external view whenNotPaused returns (uint256 amountOut) {
         if (block.timestamp > deadline) revert DeadlineExpired();
         if (amountIn == 0) revert ZeroAmount();
 
-        // Create a temporary view function call to calculate amount out
-        amountOut = _calculateAmountOutView(amountIn, zeroForOne);
-
+        amountOut = zeroForOne ? _quoteExactInput0For1(amountIn) : _quoteExactInput1For0(amountIn);
         if (amountOut < amountOutMin) revert SlippageExceeded();
-
-        return amountOut;
     }
 
-    /**
-     * @notice Calculate expected output for a given input (view function)
-     * @param amountIn Input amount
-     * @param zeroForOne Direction of swap
-     * @return amountOut Expected output amount
-     */
-    function calculateAmountOut(
-        uint256 amountIn,
-        bool zeroForOne
-    )
+    function calculateAmountOut(uint256 amountIn, bool zeroForOne)
         external
         view
         whenNotPaused
         returns (uint256 amountOut)
     {
-        if (amountIn == 0) return 0;
-
-        return _calculateAmountOutView(amountIn, zeroForOne);
+        if (amountIn == 0 || poolState.liquidity == 0) return 0;
+        return zeroForOne ? _quoteExactInput0For1(amountIn) : _quoteExactInput1For0(amountIn);
     }
 
-    /**
-     * @notice Get detailed pool information
-     * @return mean Current mean parameter
-     * @return width Current width parameter
-     * @return swapFee Current swap fee
-     * @return totalShares Total liquidity shares
-     * @return paused Whether pool is paused
-     */
     function getPoolInfo()
         external
         view
-        returns (uint256 mean, uint256 width, uint256 swapFee, uint256 totalShares, bool paused)
+        returns (
+            uint256 reserve0,
+            uint256 reserve1,
+            uint256 liquidityL,
+            uint256 priceWad,
+            bool paused_
+        )
     {
-        return (logNormalParams.mean, logNormalParams.width, logNormalParams.swapFee, totalSupply, super.paused());
+        PoolState memory state = poolState;
+        priceWad = state.liquidity == 0 ? 0 : _price0(state.reserve0, state.liquidity);
+        return (state.reserve0, state.reserve1, state.liquidity, priceWad, super.paused());
     }
 
-    // Required implementation for removing liquidity
-    function _getAmountOut(RemoveLiquidityParams memory liquidityParams)
-        internal
-        view
-        override
-        returns (uint256 amount0, uint256 amount1, uint256 shares)
-    {
-        shares = liquidityParams.liquidity;
-
-        if (totalSupply == 0 || shares == 0) {
-            return (0, 0, 0);
-        }
-
-        // Calculate proportional withdrawal based on simplified reserves
-        uint256 currentReserve0 = totalSupply > 0 ? totalSupply : 1000e18;
-        uint256 currentReserve1 = totalSupply > 0 ? totalSupply : 1000e18;
-
-        // Proportional amounts based on share percentage
-        amount0 = (shares * currentReserve0) / totalSupply;
-        amount1 = (shares * currentReserve1) / totalSupply;
-
-        // Apply small fee for early withdrawal (0.1%)
-        uint256 withdrawalFee = WAD / 1000; // 0.1%
-        amount0 = (amount0 * (WAD - withdrawalFee)) / WAD;
-        amount1 = (amount1 * (WAD - withdrawalFee)) / WAD;
+    function previewExactOutput(uint256 amountOut, bool zeroForOne) external view returns (uint256 amountIn) {
+        if (amountOut == 0 || poolState.liquidity == 0) return 0;
+        return zeroForOne ? _solveExactInput0For1(amountOut) : _solveExactInput1For0(amountOut);
     }
 
-    // Required implementation for adding liquidity
-    function _getAmountIn(AddLiquidityParams memory liquidityParams)
+    function currentInvariant() external view returns (int256) {
+        PoolState memory state = poolState;
+        if (state.liquidity == 0) return 0;
+
+        uint256 xOverL = FullMath.mulDiv(state.reserve0, WAD, state.liquidity);
+        uint256 yOverMuL = FullMath.mulDiv(state.reserve1, WAD, _maxReserve1(state.liquidity));
+        return _invPhiWad(xOverL) + _invPhiWad(yOverMuL) + int256(logNormalParams.width);
+    }
+
+    function currentPrice() external view returns (uint256) {
+        if (poolState.liquidity == 0) return 0;
+        return _price0(poolState.reserve0, poolState.liquidity);
+    }
+
+    function _planAddLiquidity(uint160 sqrtPriceX96, AddLiquidityParams memory params)
         internal
         view
-        override
-        returns (uint256 amount0, uint256 amount1, uint256 shares)
+        returns (AddLiquidityPlan memory plan)
     {
-        if (liquidityParams.amount0Desired == 0 && liquidityParams.amount1Desired == 0) {
-            revert ZeroAmount();
-        }
+        if (params.amount0Desired == 0 && params.amount1Desired == 0) revert ZeroAmount();
 
-        // If pool is empty, initialize with desired amounts
-        if (totalSupply == 0) {
-            amount0 = liquidityParams.amount0Desired;
-            amount1 = liquidityParams.amount1Desired;
-            shares = Math.sqrt(amount0 * amount1);
-            if (shares == 0) revert InsufficientLiquidity();
+        PoolState memory state = poolState;
+        if (state.liquidity == 0) {
+            uint256 priceWad = _sqrtPriceX96ToPriceWad(sqrtPriceX96);
+            plan = _bootstrapPlan(priceWad, params.amount0Desired, params.amount1Desired);
         } else {
-            // Calculate proportional amounts based on simplified reserves
-            uint256 currentReserve0 = 1000e18;
-            uint256 currentReserve1 = 1000e18;
+            uint256 deltaLFrom0 = params.amount0Desired == 0
+                ? type(uint256).max
+                : FullMath.mulDiv(state.liquidity, params.amount0Desired, state.reserve0);
+            uint256 deltaLFrom1 = params.amount1Desired == 0
+                ? type(uint256).max
+                : FullMath.mulDiv(state.liquidity, params.amount1Desired, state.reserve1);
 
-            // Calculate optimal amounts maintaining pool ratio
-            uint256 amount1FromAmount0 = (liquidityParams.amount0Desired * currentReserve1) / currentReserve0;
-            uint256 amount0FromAmount1 = (liquidityParams.amount1Desired * currentReserve0) / currentReserve1;
+            uint256 deltaL = Math.min(deltaLFrom0, deltaLFrom1);
+            if (deltaL == 0 || deltaL == type(uint256).max) revert InsufficientLiquidity();
 
-            // Choose the pair that doesn't exceed desired amounts
-            if (amount1FromAmount0 <= liquidityParams.amount1Desired && amount1FromAmount0 > 0) {
-                amount0 = liquidityParams.amount0Desired;
-                amount1 = amount1FromAmount0;
-            } else if (amount0FromAmount1 <= liquidityParams.amount0Desired && amount0FromAmount1 > 0) {
-                amount0 = amount0FromAmount1;
-                amount1 = liquidityParams.amount1Desired;
-            } else {
-                // Fallback to smaller amounts to maintain ratio
-                amount0 = Math.min(liquidityParams.amount0Desired, amount0FromAmount1);
-                amount1 = Math.min(liquidityParams.amount1Desired, amount1FromAmount0);
-            }
-
-            // Calculate shares proportional to contribution (geometric mean for better fairness)
-            uint256 shareFromAmount0 = (amount0 * totalSupply) / currentReserve0;
-            uint256 shareFromAmount1 = (amount1 * totalSupply) / currentReserve1;
-            shares = Math.min(shareFromAmount0, shareFromAmount1);
-
-            // Ensure minimum shares for security
-            if (shares == 0 && (amount0 > 0 || amount1 > 0)) {
-                shares = Math.sqrt(amount0 * amount1);
-            }
+            plan.deltaL = deltaL;
+            plan.amount0 = FullMath.mulDiv(state.reserve0, deltaL, state.liquidity);
+            plan.amount1 = FullMath.mulDiv(state.reserve1, deltaL, state.liquidity);
+            plan.shares = FullMath.mulDiv(totalSupply, deltaL, state.liquidity);
         }
+
+        if (plan.amount0 > params.amount0Desired || plan.amount1 > params.amount1Desired) revert MaxAmountExceeded();
+        if (plan.amount0 < params.amount0Min || plan.amount1 < params.amount1Min) revert MinAmountNotMet();
     }
 
-    // Required implementation for minting liquidity tokens
-    function _mint(
-        AddLiquidityParams memory, /* params */
-        BalanceDelta callerDelta,
-        BalanceDelta, /* feesAccrued */
-        uint256 shares
-    )
+    function _bootstrapPlan(uint256 priceWad, uint256 amount0Desired, uint256 amount1Desired)
         internal
-        override
-        nonReentrant
-        whenNotPaused
+        view
+        returns (AddLiquidityPlan memory plan)
     {
-        if (shares == 0) revert ZeroAmount();
+        if (priceWad == 0) revert InvalidParameters();
 
-        // Mint liquidity shares to the caller
-        balanceOf[msg.sender] += shares;
-        totalSupply += shares;
+        uint256 mu = logNormalParams.mean;
+        uint256 sigma = logNormalParams.width;
+        uint256 d1 = _d1(priceWad, mu, sigma);
+        uint256 d2 = _d2(priceWad, mu, sigma);
 
-        // Extract amounts from delta for event
-        int256 amount0Delta = BalanceDelta.unwrap(callerDelta) >> 128;
-        int256 amount1Delta = BalanceDelta.unwrap(callerDelta) & ((1 << 128) - 1);
+        uint256 xRatio = WAD - _phiWad(int256(d1));
+        uint256 yRatio = _phiWad(int256(d2));
+        if (xRatio == 0 || yRatio == 0) revert DomainExceeded();
 
-        emit LiquidityAdded(
-            msg.sender,
-            amount0Delta > 0 ? uint256(amount0Delta) : 0,
-            amount1Delta > 0 ? uint256(amount1Delta) : 0,
-            shares
-        );
+        uint256 requiredYForX = amount0Desired == 0
+            ? type(uint256).max
+            : FullMath.mulDiv(mu, amount0Desired, xRatio);
+        requiredYForX = FullMath.mulDiv(requiredYForX, yRatio, WAD);
+
+        if (amount0Desired > 0 && requiredYForX <= amount1Desired) {
+            plan.amount0 = amount0Desired;
+            plan.deltaL = FullMath.mulDiv(amount0Desired, WAD, xRatio);
+            plan.amount1 = FullMath.mulDiv(_maxReserve1(plan.deltaL), yRatio, WAD);
+        } else {
+            uint256 requiredXForY = amount1Desired == 0
+                ? 0
+                : FullMath.mulDiv(amount1Desired, WAD, yRatio);
+            requiredXForY = FullMath.mulDiv(requiredXForY, xRatio, mu);
+
+            if (amount1Desired == 0 || requiredXForY > amount0Desired) revert InvalidParameters();
+
+            plan.amount1 = amount1Desired;
+            plan.deltaL = FullMath.mulDiv(amount1Desired, WAD, FullMath.mulDiv(mu, yRatio, WAD));
+            plan.amount0 = FullMath.mulDiv(plan.deltaL, xRatio, WAD);
+        }
+
+        plan.shares = plan.deltaL;
     }
 
-    // Required implementation for burning liquidity tokens
-    function _burn(
-        RemoveLiquidityParams memory, /* params */
-        BalanceDelta callerDelta,
-        BalanceDelta, /* feesAccrued */
-        uint256 shares
-    )
-        internal
-        override
-        nonReentrant
-        whenNotPaused
-    {
-        if (shares == 0) revert ZeroAmount();
-        if (balanceOf[msg.sender] < shares) revert InsufficientLiquidity();
+    function _planRemoveLiquidity(uint256 shares) internal view returns (RemoveLiquidityPlan memory plan) {
+        if (shares == 0 || totalSupply == 0 || poolState.liquidity == 0) revert InsufficientLiquidity();
 
-        // Burn liquidity shares from the caller
-        balanceOf[msg.sender] -= shares;
-        totalSupply -= shares;
+        PoolState memory state = poolState;
+        plan.shares = shares;
+        plan.deltaL = FullMath.mulDiv(state.liquidity, shares, totalSupply);
+        plan.amount0 = FullMath.mulDiv(state.reserve0, plan.deltaL, state.liquidity);
+        plan.amount1 = FullMath.mulDiv(state.reserve1, plan.deltaL, state.liquidity);
+    }
 
-        // Extract amounts from delta for event
-        int256 amount0Delta = BalanceDelta.unwrap(callerDelta) >> 128;
-        int256 amount1Delta = BalanceDelta.unwrap(callerDelta) & ((1 << 128) - 1);
+    function _executeExactInput0For1(uint256 amountIn) internal returns (uint256 amountOut) {
+        PoolState memory state = poolState;
+        uint256 feeAmount = FullMath.mulDiv(amountIn, logNormalParams.swapFee, WAD);
+        uint256 deltaL = _feeToLiquidity0(state, feeAmount);
+        uint256 newLiquidity = state.liquidity + deltaL;
+        uint256 newReserve0 = state.reserve0 + amountIn;
+        if (newReserve0 >= newLiquidity) revert DomainExceeded();
 
-        emit LiquidityRemoved(
-            msg.sender,
-            amount0Delta < 0 ? uint256(-amount0Delta) : 0,
-            amount1Delta < 0 ? uint256(-amount1Delta) : 0,
-            shares
-        );
+        uint256 newReserve1 = _solveReserve1(newReserve0, newLiquidity);
+        if (newReserve1 >= state.reserve1) revert InsufficientLiquidity();
+
+        amountOut = state.reserve1 - newReserve1;
+
+        poolState.reserve0 = newReserve0;
+        poolState.reserve1 = newReserve1;
+        poolState.liquidity = newLiquidity;
+
+        emit SwapExecuted(msg.sender, true, amountIn, amountOut, feeAmount);
+    }
+
+    function _executeExactInput1For0(uint256 amountIn) internal returns (uint256 amountOut) {
+        PoolState memory state = poolState;
+        uint256 feeAmount = FullMath.mulDiv(amountIn, logNormalParams.swapFee, WAD);
+        uint256 deltaL = _feeToLiquidity1(state, feeAmount);
+        uint256 newLiquidity = state.liquidity + deltaL;
+        uint256 newReserve1 = state.reserve1 + amountIn;
+        if (newReserve1 >= _maxReserve1(newLiquidity)) revert DomainExceeded();
+
+        uint256 newReserve0 = _solveReserve0(newReserve1, newLiquidity);
+        if (newReserve0 >= state.reserve0) revert InsufficientLiquidity();
+
+        amountOut = state.reserve0 - newReserve0;
+
+        poolState.reserve0 = newReserve0;
+        poolState.reserve1 = newReserve1;
+        poolState.liquidity = newLiquidity;
+
+        emit SwapExecuted(msg.sender, false, amountIn, amountOut, feeAmount);
+    }
+
+    function _executeExactOutput0For1(uint256 amountOut) internal returns (uint256 amountIn) {
+        amountIn = _solveExactInput0For1(amountOut);
+        return _executeExactInput0For1(amountIn);
+    }
+
+    function _executeExactOutput1For0(uint256 amountOut) internal returns (uint256 amountIn) {
+        amountIn = _solveExactInput1For0(amountOut);
+        return _executeExactInput1For0(amountIn);
+    }
+
+    function _solveExactInput0For1(uint256 targetOut) internal view returns (uint256 amountIn) {
+        PoolState memory state = poolState;
+        if (targetOut == 0 || targetOut >= state.reserve1) revert InsufficientLiquidity();
+
+        uint256 low = 1;
+        uint256 high = Math.max(state.reserve0, 1e6);
+        while (_quoteExactInput0For1(high) < targetOut) {
+            high *= 2;
+            if (high >= state.liquidity * 4) revert InsufficientLiquidity();
+        }
+
+        for (uint256 i = 0; i < SEARCH_STEPS; ++i) {
+            uint256 mid = (low + high) / 2;
+            if (_quoteExactInput0For1(mid) >= targetOut) high = mid;
+            else low = mid + 1;
+        }
+        return high;
+    }
+
+    function _solveExactInput1For0(uint256 targetOut) internal view returns (uint256 amountIn) {
+        PoolState memory state = poolState;
+        if (targetOut == 0 || targetOut >= state.reserve0) revert InsufficientLiquidity();
+
+        uint256 low = 1;
+        uint256 high = Math.max(state.reserve1, 1e6);
+        while (_quoteExactInput1For0(high) < targetOut) {
+            high *= 2;
+            if (high >= _maxReserve1(state.liquidity) * 4) revert InsufficientLiquidity();
+        }
+
+        for (uint256 i = 0; i < SEARCH_STEPS; ++i) {
+            uint256 mid = (low + high) / 2;
+            if (_quoteExactInput1For0(mid) >= targetOut) high = mid;
+            else low = mid + 1;
+        }
+        return high;
+    }
+
+    function _quoteExactInput0For1(uint256 amountIn) internal view returns (uint256 amountOut) {
+        PoolState memory state = poolState;
+        if (state.liquidity == 0 || amountIn == 0) return 0;
+
+        uint256 feeAmount = FullMath.mulDiv(amountIn, logNormalParams.swapFee, WAD);
+        uint256 deltaL = _feeToLiquidity0(state, feeAmount);
+        uint256 newLiquidity = state.liquidity + deltaL;
+        uint256 newReserve0 = state.reserve0 + amountIn;
+        if (newReserve0 >= newLiquidity) revert DomainExceeded();
+
+        uint256 newReserve1 = _solveReserve1(newReserve0, newLiquidity);
+        if (newReserve1 >= state.reserve1) return 0;
+        return state.reserve1 - newReserve1;
+    }
+
+    function _quoteExactInput1For0(uint256 amountIn) internal view returns (uint256 amountOut) {
+        PoolState memory state = poolState;
+        if (state.liquidity == 0 || amountIn == 0) return 0;
+
+        uint256 feeAmount = FullMath.mulDiv(amountIn, logNormalParams.swapFee, WAD);
+        uint256 deltaL = _feeToLiquidity1(state, feeAmount);
+        uint256 newLiquidity = state.liquidity + deltaL;
+        uint256 newReserve1 = state.reserve1 + amountIn;
+        if (newReserve1 >= _maxReserve1(newLiquidity)) revert DomainExceeded();
+
+        uint256 newReserve0 = _solveReserve0(newReserve1, newLiquidity);
+        if (newReserve0 >= state.reserve0) return 0;
+        return state.reserve0 - newReserve0;
+    }
+
+    function _feeToLiquidity0(PoolState memory state, uint256 feeAmount) internal view returns (uint256 deltaL) {
+        if (feeAmount == 0) return 0;
+        uint256 priceWad = _price0(state.reserve0, state.liquidity);
+        uint256 totalValueY = FullMath.mulDiv(priceWad, state.reserve0, WAD) + state.reserve1;
+        uint256 feeValueY = FullMath.mulDiv(priceWad, feeAmount, WAD);
+        return FullMath.mulDiv(state.liquidity, feeValueY, totalValueY);
+    }
+
+    function _feeToLiquidity1(PoolState memory state, uint256 feeAmount) internal view returns (uint256 deltaL) {
+        if (feeAmount == 0) return 0;
+        uint256 priceWad = _price0(state.reserve0, state.liquidity);
+        uint256 totalValueY = FullMath.mulDiv(priceWad, state.reserve0, WAD) + state.reserve1;
+        return FullMath.mulDiv(state.liquidity, feeAmount, totalValueY);
+    }
+
+    function _solveReserve1(uint256 reserve0_, uint256 liquidity_) internal view returns (uint256 reserve1_) {
+        uint256 xOverL = FullMath.mulDiv(reserve0_, WAD, liquidity_);
+        int256 inside = -int256(logNormalParams.width) - _invPhiWad(xOverL);
+        uint256 yRatio = _phiWad(inside);
+        reserve1_ = FullMath.mulDiv(_maxReserve1(liquidity_), yRatio, WAD);
+    }
+
+    function _solveReserve0(uint256 reserve1_, uint256 liquidity_) internal view returns (uint256 reserve0_) {
+        uint256 yOverMuL = FullMath.mulDiv(reserve1_, WAD, _maxReserve1(liquidity_));
+        int256 inside = -int256(logNormalParams.width) - _invPhiWad(yOverMuL);
+        uint256 xRatio = _phiWad(inside);
+        reserve0_ = FullMath.mulDiv(liquidity_, xRatio, WAD);
+    }
+
+    function _price0(uint256 reserve0_, uint256 liquidity_) internal view returns (uint256 priceWad) {
+        uint256 u = WAD - FullMath.mulDiv(reserve0_, WAD, liquidity_);
+        int256 z = _invPhiWad(u);
+        int256 sigmaTerm = int256(FullMath.mulDiv(uint256(z >= 0 ? z : -z), logNormalParams.width, WAD));
+        if (z < 0) sigmaTerm = -sigmaTerm;
+        int256 exponent = sigmaTerm - int256(FullMath.mulDiv(logNormalParams.width, logNormalParams.width, 2 * WAD));
+        priceWad = FullMath.mulDiv(logNormalParams.mean, _expSignedWad(exponent), WAD);
+    }
+
+    function _d1(uint256 priceWad, uint256 mu, uint256 sigma) internal pure returns (uint256) {
+        int256 lnTerm = _lnWad(FullMath.mulDiv(priceWad, WAD, mu));
+        int256 numerator = lnTerm + int256(FullMath.mulDiv(sigma, sigma, 2 * WAD));
+        if (numerator <= 0) return 0;
+        return uint256(numerator) * WAD / sigma;
+    }
+
+    function _d2(uint256 priceWad, uint256 mu, uint256 sigma) internal pure returns (uint256) {
+        int256 lnTerm = _lnWad(FullMath.mulDiv(priceWad, WAD, mu));
+        int256 numerator = lnTerm - int256(FullMath.mulDiv(sigma, sigma, 2 * WAD));
+        if (numerator <= 0) return 0;
+        return uint256(numerator) * WAD / sigma;
+    }
+
+    function _phiWad(int256 z) internal pure returns (uint256) {
+        bool negative = z < 0;
+        uint256 scaled = FullMath.mulDiv(uint256(negative ? -z : z), LOGISTIC_A, WAD);
+        uint256 expTerm = _expWad(scaled);
+
+        if (negative) {
+            return FullMath.mulDiv(WAD, WAD, WAD + expTerm);
+        }
+        return FullMath.mulDiv(expTerm, WAD, WAD + expTerm);
+    }
+
+    function _invPhiWad(uint256 u) internal pure returns (int256) {
+        if (u == 0 || u >= WAD) revert DomainExceeded();
+        int256 lnOdds = _lnWad(FullMath.mulDiv(u, WAD, WAD - u));
+        return (lnOdds * int256(WAD)) / int256(LOGISTIC_A);
+    }
+
+    function _expSignedWad(int256 x) internal pure returns (uint256) {
+        if (x == 0) return WAD;
+        if (x > 0) return _expWad(uint256(x));
+
+        uint256 absX = uint256(-x);
+        uint256 expAbs = _expWad(absX);
+        return FullMath.mulDiv(WAD, WAD, expAbs);
+    }
+
+    function _expWad(uint256 x) internal pure returns (uint256) {
+        if (x == 0) return WAD;
+        if (x > MAX_EXP_INPUT) return type(uint256).max / 2;
+
+        uint256 k = x / LN_2;
+        uint256 r = x % LN_2;
+
+        uint256 series = WAD;
+        uint256 term = WAD;
+
+        for (uint256 i = 1; i <= 8; ++i) {
+            term = FullMath.mulDiv(term, r, i * WAD);
+            series += term;
+        }
+
+        return series << k;
+    }
+
+    function _lnWad(uint256 x) internal pure returns (int256) {
+        if (x == 0) revert DomainExceeded();
+        if (x == WAD) return 0;
+
+        bool invert = x < WAD;
+        uint256 y = invert ? FullMath.mulDiv(WAD, WAD, x) : x;
+        uint256 k;
+
+        while (y >= 2 * WAD) {
+            y /= 2;
+            ++k;
+        }
+
+        int256 u = int256(y) - int256(WAD);
+        int256 result = u;
+        int256 term = u;
+
+        for (uint256 i = 2; i <= 8; ++i) {
+            term = (term * u) / int256(WAD);
+            int256 contribution = term / int256(i);
+            result = i % 2 == 0 ? result - contribution : result + contribution;
+        }
+
+        result += int256(k) * int256(LN_2);
+        return invert ? -result : result;
+    }
+
+    function _sqrtPriceX96ToPriceWad(uint160 sqrtPriceX96) internal pure returns (uint256) {
+        uint256 priceQ96 = FullMath.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), FixedPoint96.Q96);
+        return FullMath.mulDiv(priceQ96, WAD, FixedPoint96.Q96);
+    }
+
+    function _maxReserve1(uint256 liquidity_) internal view returns (uint256) {
+        return FullMath.mulDiv(logNormalParams.mean, liquidity_, WAD);
     }
 }
