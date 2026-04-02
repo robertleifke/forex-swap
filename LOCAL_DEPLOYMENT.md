@@ -1,121 +1,83 @@
-# Numo Deployment Guide
+# ForexSwap Local Deployment Guide
 
-## Local Development with Anvil
+## Context
 
-This repository includes scripts for deploying the Numo hook contract to a local Anvil node for development and testing.
+ForexSwap is a Uniswap v4 hook, not a standalone pool contract. In v4, `PoolManager` is the singleton that owns pool state and invokes hooks during pool initialization, liquidity changes, swaps, and donations. This repo's local deployment flow sets up a minimal v4 environment around the hook.
 
-### Prerequisites
+Reference:
+- [Uniswap v4 overview](https://docs.uniswap.org/contracts/v4/overview)
 
-- [Foundry](https://book.getfoundry.sh/getting-started/installation) installed
-- Anvil (comes with Foundry)
+## Prerequisites
 
-### Quick Start
+- Foundry installed
+- Bun installed
+- git submodules initialized
 
-**Manual Deployment (Recommended):**
-
-1. **Start Anvil in one terminal:**
-
-   ```bash
-   anvil
-   ```
-
-2. **In another terminal, deploy:**
-
-   ```bash
-   # Set required environment variable
-   export API_KEY_ETHERSCAN="not_needed_for_local"
-
-   # Deploy the complete ecosystem
-   forge script script/Anvil.s.sol:AnvilScript \
-     --rpc-url http://localhost:8545 \
-     --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-     --broadcast -vv
-   ```
-
-**Alternative: Use deployment script (if your terminal supports it):**
-
-```bash
-./deploy-local.sh
+```sh
+git submodule update --init --recursive
+bun install
 ```
 
-### What Gets Deployed
+Without the submodules, Foundry cannot resolve the v4 and OpenZeppelin hook dependencies under `lib/`.
 
-The `Anvil.s.sol` script deploys a complete Uniswap V4 ecosystem including:
+## Recommended Local Flow
 
-- **PoolManager** - Core V4 pool management contract
-- **Numo Hook** - Your hook contract (deployed with proper address mining)
-- **PositionManager** - For managing liquidity positions
-- **Test Routers** - For liquidity and swap operations
-- **Permit2** - For token approvals
-- **Mock Tokens** - ERC20 tokens for testing
+1. Start Anvil:
 
-### Testing the Deployment
-
-The script automatically:
-
-1. Creates a pool with the Numo hook
-2. Adds initial liquidity
-3. Performs a test swap
-4. Logs all deployed contract addresses
-
-### Manual Deployment
-
-If you prefer to deploy manually:
-
-```bash
-# Start Anvil
+```sh
 anvil
+```
 
-# In another terminal, deploy
+2. In another terminal, deploy the local v4 stack:
+
+```sh
 forge script script/Anvil.s.sol:AnvilScript \
   --rpc-url http://localhost:8545 \
   --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-  --broadcast -vvv
+  --broadcast -vv
 ```
 
-### Environment Variables
+You can also use:
 
-For mainnet or testnet deployments, you can use:
-
-```bash
-# Using mnemonic
-export MNEMONIC="your twelve word mnemonic phrase here"
-
-# Or using specific address
-export ETH_FROM="0xYourAddressHere"
-
-# Then deploy
-forge script script/Deploy.s.sol:Deploy --rpc-url $RPC_URL --broadcast
+```sh
+./deploy-local.sh
 ```
 
-### Deployed Addresses
+## What the Script Deploys
 
-After deployment, you'll see output like:
+[`script/Anvil.s.sol`](script/Anvil.s.sol) currently deploys:
 
+- `PoolManager`
+- `ForexSwap`
+- `PoolModifyLiquidityTest`
+- `PoolSwapTest`
+- `PoolDonateTest`
+- two mock ERC20 tokens
+
+It then:
+
+- mines a CREATE2 salt so the hook address has the required permission flags
+- initializes a pool
+- adds initial liquidity through the hook
+
+## Important v4 Details
+
+- Hook permissions are encoded into the hook address, so `ForexSwap` must be deployed at a mined address.
+- `PoolManager` owns lifecycle execution. The hook supplies logic but does not own pool state the way a standalone AMM would.
+- Flash accounting is a v4 execution optimization handled by core contracts, not by this deployment script.
+
+## Current Limitations
+
+- The script is designed for local development on chain ID `31337`.
+- The sample swap path in the script is currently disabled.
+- [`script/Deploy.s.sol`](script/Deploy.s.sol) is only a stub for non-local deployment because it uses a placeholder `PoolManager` address.
+
+## Troubleshooting
+
+If `forge build` or `forge script` fails with missing imports:
+
+```sh
+git submodule update --init --recursive
 ```
-=== Deployed Addresses ===
-PoolManager: 0x5FbDB2315678afecb367f032d93F642f64180aa3
-Numo Hook: 0x[computed_hook_address]
-PositionManager: 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
-LiquidityRouter: 0x[router_address]
-SwapRouter: 0x[swap_router_address]
-Permit2: 0x000000000022D473030F116dDEE9F6B43aC78BA3
-```
 
-### Troubleshooting
-
-1. **Hook address mismatch error**: This means the CREATE2 mining didn't work correctly. The script should handle this
-   automatically.
-
-2. **Permit2 deployment issues**: The script tries to use the canonical Permit2 address first, then deploys a local
-   version if needed.
-
-3. **Transaction failures**: Make sure Anvil is running and you're using the correct RPC URL.
-
-### Next Steps
-
-After deployment, you can:
-
-- Interact with your hook through the deployed routers
-- Test different scenarios with the mock tokens
-- Develop additional functionality using the deployed addresses
+If the hook deployment fails with an address mismatch, the CREATE2 salt mining step did not produce the required permission bits.

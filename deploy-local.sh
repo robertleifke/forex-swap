@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Deploy Numo to local Anvil node (no fork)
+# Deploy ForexSwap to local Anvil node (no fork)
 # Usage: ./deploy-local.sh
 
 set -e
@@ -32,7 +32,7 @@ for i in {1..30}; do
     sleep 1
 done
 
-echo "🚀 Deploying Numo to local Anvil..."
+echo "🚀 Deploying ForexSwap to local Anvil..."
 
 # Deploy using the Anvil script
 forge script script/Anvil.s.sol:AnvilScript \

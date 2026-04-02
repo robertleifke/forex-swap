@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Deploy Numo to local Anvil node
+# Deploy ForexSwap to local Anvil node
 # Usage: ./deploy-anvil.sh
 
 set -e
@@ -12,7 +12,7 @@ ANVIL_PID=$!
 # Wait for anvil to start
 sleep 3
 
-echo "🚀 Deploying Numo to Anvil..."
+echo "🚀 Deploying ForexSwap to Anvil..."
 
 # Deploy using the Anvil script
 forge script script/Anvil.s.sol:AnvilScript --rpc-url http://localhost:8545 --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --broadcast -vvv

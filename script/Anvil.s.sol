@@ -15,10 +15,10 @@ import { MockERC20 } from "solmate/src/test/utils/mocks/MockERC20.sol"; // solhi
 import { Constants } from "v4-core/test/utils/Constants.sol";
 import { TickMath } from "v4-core/src/libraries/TickMath.sol";
 import { Currency } from "v4-core/src/types/Currency.sol";
-import { Numo } from "../src/Numo.sol";
+import { ForexSwap } from "../src/ForexSwap.sol";
 import { HookMiner } from "v4-periphery/src/utils/HookMiner.sol";
 
-/// @notice Forge script for deploying Numo & basic v4 ecosystem to **anvil**
+/// @notice Forge script for deploying ForexSwap & basic v4 ecosystem to **anvil**
 contract AnvilScript is Script {
     error HookAddressMismatch();
     error InvalidChainId();
@@ -52,12 +52,14 @@ contract AnvilScript is Script {
 
         // Mine a salt that will produce a hook address with the correct permissions
         (address hookAddress, bytes32 salt) =
-            HookMiner.find(CREATE2_DEPLOYER, permissions, type(Numo).creationCode, abi.encode(address(manager)));
+            HookMiner.find(
+                CREATE2_DEPLOYER, permissions, type(ForexSwap).creationCode, abi.encode(address(manager))
+            );
 
-        // Deploy the Numo hook using CREATE2
+        // Deploy the ForexSwap hook using CREATE2
         vm.broadcast();
-        Numo numo = new Numo{ salt: salt }(manager);
-        if (address(numo) != hookAddress) {
+        ForexSwap forexSwap = new ForexSwap{ salt: salt }(manager);
+        if (address(forexSwap) != hookAddress) {
             revert HookAddressMismatch();
         }
 
@@ -68,13 +70,13 @@ contract AnvilScript is Script {
 
         // Test the lifecycle (create pool, add liquidity, swap)
         vm.startBroadcast();
-        testLifecycle(address(numo));
+        testLifecycle(address(forexSwap));
         vm.stopBroadcast();
 
         // Log deployed addresses
         console.log("=== Deployed Addresses ===");
         console.log("PoolManager:", address(manager));
-        console.log("Numo Hook:", address(numo));
+        console.log("ForexSwap Hook:", address(forexSwap));
         console.log("LiquidityRouter:", address(lpRouter));
         console.log("SwapRouter:", address(swapRouter));
     }
@@ -152,10 +154,10 @@ contract AnvilScript is Script {
     )
         internal
     {
-        // Add liquidity using Numo's native function
-        Numo numoHook = Numo(hookAddress);
+        // Add liquidity using ForexSwap's native function
+        ForexSwap forexSwapHook = ForexSwap(hookAddress);
         uint256 deadline = block.timestamp + 300; // 5 minutes
-        numoHook.addLiquidityWithSlippage(
+        forexSwapHook.addLiquidityWithSlippage(
             50 ether, // amount0Desired
             50 ether, // amount1Desired
             45 ether, // amount0Min (10% slippage)
@@ -163,7 +165,7 @@ contract AnvilScript is Script {
             deadline
         );
 
-        console.log("Added liquidity to pool via Numo hook");
+        console.log("Added liquidity to pool via ForexSwap hook");
     }
 
     function _exampleSwap(PoolKey memory poolKey) internal {

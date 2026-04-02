@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import { Test } from "forge-std/src/Test.sol";
 import { console2 } from "forge-std/src/console2.sol";
-import { Numo } from "../src/Numo.sol";
+import { ForexSwap } from "../src/ForexSwap.sol";
 
 import { PoolManager } from "v4-core/src/PoolManager.sol";
 import { PoolKey } from "v4-core/src/types/PoolKey.sol";
@@ -15,14 +15,14 @@ import { TickMath } from "v4-core/src/libraries/TickMath.sol";
 import { TestERC20 } from "v4-core/src/test/TestERC20.sol";
 import { HookMiner } from "v4-periphery/src/utils/HookMiner.sol";
 
-contract NumoCorrectTest is Test {
+contract ForexSwapCorrectTest is Test {
     using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
 
     error HookAddressMismatch();
 
     PoolManager internal poolManager;
-    Numo internal numo;
+    ForexSwap internal forexSwap;
     TestERC20 internal token0;
     TestERC20 internal token1;
     PoolKey internal poolKey;
@@ -36,7 +36,7 @@ contract NumoCorrectTest is Test {
     );
 
     function setUp() public {
-        console2.log("=== SETTING UP NUMO TEST ===");
+        console2.log("=== SETTING UP FOREXSWAP TEST ===");
 
         poolManager = new PoolManager();
         console2.log("Pool manager deployed");
@@ -50,18 +50,18 @@ contract NumoCorrectTest is Test {
 
         bytes memory constructorArgs = abi.encode(address(poolManager));
         (address hookAddress, bytes32 salt) =
-            HookMiner.find(address(this), flags, type(Numo).creationCode, constructorArgs);
+            HookMiner.find(address(this), flags, type(ForexSwap).creationCode, constructorArgs);
 
-        numo = new Numo{ salt: salt }(poolManager);
-        if (address(numo) != hookAddress) revert HookAddressMismatch();
-        console2.log("Numo deployed");
+        forexSwap = new ForexSwap{ salt: salt }(poolManager);
+        if (address(forexSwap) != hookAddress) revert HookAddressMismatch();
+        console2.log("ForexSwap deployed");
 
         poolKey = PoolKey({
             currency0: Currency.wrap(address(token0)),
             currency1: Currency.wrap(address(token1)),
             fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
             tickSpacing: 60,
-            hooks: numo
+            hooks: forexSwap
         });
 
         poolManager.initialize(poolKey, TickMath.getSqrtPriceAtTick(0));
@@ -78,9 +78,9 @@ contract NumoCorrectTest is Test {
     function test_deployment() external view {
         console2.log("=== DEPLOYMENT TEST ===");
 
-        assertTrue(address(numo) != address(0), "Numo should be deployed");
+        assertTrue(address(forexSwap) != address(0), "ForexSwap should be deployed");
         assertTrue(address(poolManager) != address(0), "Pool manager should be deployed");
-        assertEq(uint160(address(numo)) & flags, flags, "Hook permissions should match");
+        assertEq(uint160(address(forexSwap)) & flags, flags, "Hook permissions should match");
 
         console2.log("Deployment verified");
     }
@@ -88,7 +88,7 @@ contract NumoCorrectTest is Test {
     function test_owner() external view {
         console2.log("=== OWNER TEST ===");
 
-        address owner = numo.owner();
+        address owner = forexSwap.owner();
         assertEq(owner, address(this), "Owner should be this contract");
 
         console2.log("Owner verified");
@@ -97,13 +97,13 @@ contract NumoCorrectTest is Test {
     function test_pauseFunctionality() external {
         console2.log("=== PAUSE FUNCTIONALITY TEST ===");
 
-        assertFalse(numo.paused(), "Should not be paused initially");
+        assertFalse(forexSwap.paused(), "Should not be paused initially");
 
-        numo.emergencyPause();
-        assertTrue(numo.paused(), "Should be paused after emergency pause");
+        forexSwap.emergencyPause();
+        assertTrue(forexSwap.paused(), "Should be paused after emergency pause");
 
-        numo.emergencyUnpause();
-        assertFalse(numo.paused(), "Should not be paused after unpause");
+        forexSwap.emergencyUnpause();
+        assertFalse(forexSwap.paused(), "Should not be paused after unpause");
 
         console2.log("Pause functionality verified");
     }
@@ -115,9 +115,9 @@ contract NumoCorrectTest is Test {
         uint256 newSigma = 8e17;
         uint256 newSwapFee = 5e15;
 
-        numo.updateLogNormalParams(newMu, newSigma, newSwapFee);
+        forexSwap.updateLogNormalParams(newMu, newSigma, newSwapFee);
 
-        (uint256 mu, uint256 sigma, uint256 swapFee) = numo.logNormalParams();
+        (uint256 mu, uint256 sigma, uint256 swapFee) = forexSwap.logNormalParams();
 
         assertEq(mu, newMu, "Mu should be updated");
         assertEq(sigma, newSigma, "Sigma should be updated");
@@ -129,7 +129,7 @@ contract NumoCorrectTest is Test {
     function test_logNormalParams() external view {
         console2.log("=== LOG NORMAL PARAMS TEST ===");
 
-        (uint256 mu, uint256 sigma, uint256 swapFee) = numo.logNormalParams();
+        (uint256 mu, uint256 sigma, uint256 swapFee) = forexSwap.logNormalParams();
 
         assertTrue(mu > 0, "Mu should be greater than 0");
         assertTrue(sigma > 0, "Sigma should be greater than 0");
@@ -142,7 +142,7 @@ contract NumoCorrectTest is Test {
         console2.log("=== CALCULATE AMOUNT OUT TEST ===");
 
         uint256 amountIn = 1000e18;
-        uint256 amountOut = numo.calculateAmountOut(amountIn, true);
+        uint256 amountOut = forexSwap.calculateAmountOut(amountIn, true);
 
         assertTrue(amountOut >= 0, "Amount out should be non-negative");
 
@@ -152,7 +152,7 @@ contract NumoCorrectTest is Test {
     function test_getPoolInfo() external view {
         console2.log("=== GET POOL INFO TEST ===");
 
-        (uint256 totalLiquidity, uint256 reserve0, uint256 reserve1,,) = numo.getPoolInfo();
+        (uint256 totalLiquidity, uint256 reserve0, uint256 reserve1,,) = forexSwap.getPoolInfo();
 
         assertTrue(totalLiquidity >= 0, "Total liquidity should be non-negative");
         assertTrue(reserve0 >= 0, "Reserve0 should be non-negative");
@@ -164,7 +164,7 @@ contract NumoCorrectTest is Test {
     function test_totalSupply() external view {
         console2.log("=== TOTAL SUPPLY TEST ===");
 
-        uint256 supply = numo.totalSupply();
+        uint256 supply = forexSwap.totalSupply();
         assertEq(supply, 0, "Initial total supply should be 0");
 
         console2.log("Total supply verified");
@@ -173,7 +173,7 @@ contract NumoCorrectTest is Test {
     function test_balanceOf() external view {
         console2.log("=== BALANCE OF TEST ===");
 
-        uint256 balance = numo.balanceOf(alice);
+        uint256 balance = forexSwap.balanceOf(alice);
         assertEq(balance, 0, "Initial balance should be 0");
 
         console2.log("Balance of verified");
@@ -182,7 +182,7 @@ contract NumoCorrectTest is Test {
     function test_getSharePercentage() external view {
         console2.log("=== GET SHARE PERCENTAGE TEST ===");
 
-        uint256 sharePercent = numo.getSharePercentage(alice);
+        uint256 sharePercent = forexSwap.getSharePercentage(alice);
         assertEq(sharePercent, 0, "Initial share percentage should be 0");
 
         console2.log("Share percentage verified");
@@ -191,7 +191,7 @@ contract NumoCorrectTest is Test {
     function test_poolKey() external view {
         console2.log("=== POOL KEY TEST ===");
 
-        (Currency currency0, Currency currency1, uint24 fee, int24 tickSpacing,) = numo.poolKey();
+        (Currency currency0, Currency currency1, uint24 fee, int24 tickSpacing,) = forexSwap.poolKey();
 
         assertEq(Currency.unwrap(currency0), Currency.unwrap(poolKey.currency0), "Currency0 should match");
         assertEq(Currency.unwrap(currency1), Currency.unwrap(poolKey.currency1), "Currency1 should match");
@@ -206,7 +206,7 @@ contract NumoCorrectTest is Test {
 
         // Note: getHookPermissions returns Hooks.Permissions struct, not uint160
         // We'll just verify the function exists for now
-        numo.getHookPermissions();
+        forexSwap.getHookPermissions();
 
         console2.log("Hook permissions verified");
     }
@@ -214,23 +214,23 @@ contract NumoCorrectTest is Test {
     function test_RevertWhen_nonOwnerCannotPause() external {
         vm.prank(alice);
         vm.expectRevert();
-        numo.emergencyPause();
+        forexSwap.emergencyPause();
     }
 
     function test_RevertWhen_nonOwnerCannotUpdateParams() external {
         vm.prank(alice);
         vm.expectRevert();
-        numo.updateLogNormalParams(1e18, 5e17, 3e15);
+        forexSwap.updateLogNormalParams(1e18, 5e17, 3e15);
     }
 
     function test_RevertWhen_invalidMu() external {
         vm.expectRevert();
-        numo.updateLogNormalParams(0, 5e17, 3e15);
+        forexSwap.updateLogNormalParams(0, 5e17, 3e15);
     }
 
     function test_RevertWhen_invalidSigma() external {
         vm.expectRevert();
-        numo.updateLogNormalParams(1e18, 0, 3e15);
+        forexSwap.updateLogNormalParams(1e18, 0, 3e15);
     }
 
     // Removed problematic fuzz test due to InvalidWidth errors
@@ -239,18 +239,18 @@ contract NumoCorrectTest is Test {
     function testFuzz_calculateAmountOut(uint256 amountIn) external view {
         amountIn = bound(amountIn, 1, 1000e18);
 
-        uint256 amountOut = numo.calculateAmountOut(amountIn, true);
+        uint256 amountOut = forexSwap.calculateAmountOut(amountIn, true);
         assertTrue(amountOut >= 0, "Amount out should be non-negative");
     }
 
     function test_comprehensiveState() external view {
         console2.log("=== COMPREHENSIVE STATE TEST ===");
 
-        (uint256 mu, uint256 sigma, uint256 swapFee) = numo.logNormalParams();
-        (uint256 totalLiquidity, uint256 reserve0, uint256 reserve1,,) = numo.getPoolInfo();
-        uint256 supply = numo.totalSupply();
-        address owner = numo.owner();
-        bool isPaused = numo.paused();
+        (uint256 mu, uint256 sigma, uint256 swapFee) = forexSwap.logNormalParams();
+        (uint256 totalLiquidity, uint256 reserve0, uint256 reserve1,,) = forexSwap.getPoolInfo();
+        uint256 supply = forexSwap.totalSupply();
+        address owner = forexSwap.owner();
+        bool isPaused = forexSwap.paused();
 
         console2.log("Mu:", mu);
         console2.log("Sigma:", sigma);

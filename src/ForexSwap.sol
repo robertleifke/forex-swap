@@ -10,7 +10,7 @@ import { Pausable } from "v4-core/lib/openzeppelin-contracts/contracts/utils/Pau
 import { ReentrancyGuard } from "v4-core/lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
 
 /**
- * @title Numo
+ * @title Forex Swap
  * @author Robert Leifke
  * @notice A Uniswap V4 hook implementing a log-normal distribution-based market maker
  * @dev This contract implements a custom trading curve based on log-normal distribution principles,
@@ -44,7 +44,7 @@ import { ReentrancyGuard } from "v4-core/lib/openzeppelin-contracts/contracts/ut
  * This hook can be deployed on Uniswap V4 pools to provide more sophisticated pricing
  * for assets that benefit from statistical modeling rather than simple geometric means.
  */
-contract Numo is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
+contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     // Custom errors
     error InvalidMean();
     error InvalidWidth();

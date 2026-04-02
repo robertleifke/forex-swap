@@ -1,98 +1,121 @@
 # ForexSwap
 
-[gitpod]: https://gitpod.io/#https://github.com/robertleifke/forex-swap
-[gitpod-badge]: https://img.shields.io/badge/Gitpod-Open%20in%20Gitpod-FFB45B?logo=gitpod
-[gha]: https://github.com/robertleifke/forex-swap/actions
-[gha-badge]: https://github.com/robertleifke/forex-swap/actions/workflows/ci.yml/badge.svg
-[foundry]: https://getfoundry.sh/
-[foundry-badge]: https://img.shields.io/badge/Built%20with-Foundry-FFDB1C.svg
-[license]: https://opensource.org/licenses/MIT
-[license-badge]: https://img.shields.io/badge/License-MIT-blue.svg
+> WARNING: This code has not been audited. Treat it as experimental.
 
-> ⚠️ **WARNING:** This code has not yet been audited. Use at your own risk.
+ForexSwap is a Uniswap v4 hook prototype for FX-style pools. It plugs custom accounting into the v4 swap and liquidity lifecycle so the pool can use a custom curve instead of the default concentrated-liquidity math.
 
-## Overview
+The implementation in this repo follows the v4 architecture described in the official overview:
 
-ForexSwap is a Uniswap v4 hook implementation of a [log normal](https://en.wikipedia.org/wiki/Log-normal_distribution) market maker. It's statistical curve that makes liquidity provisioning more passive and capital efficient on frontier FX pairs such as USDC/cNGN.
+- `PoolManager` is the singleton that owns pool state and calls hooks.
+- Hooks are permissioned contracts whose callback surface is encoded into the hook address.
+- Dynamic fees are pool-level behavior in v4, but the fee policy itself is application-defined.
+- Flash accounting is handled by v4; this repo focuses on custom accounting and curve logic.
 
-## Quick Start
+Official reference:
+- [Uniswap v4 overview](https://docs.uniswap.org/contracts/v4/overview)
 
-Clone and set up the project:
+## Repo Layout
+
+- [`src/ForexSwap.sol`](src/ForexSwap.sol): main `ForexSwap` hook contract
+- [`tests/ForexSwap.t.sol`](tests/ForexSwap.t.sol): Foundry tests
+- [`script/Anvil.s.sol`](script/Anvil.s.sol): local Anvil deployment and lifecycle script
+- [`script/Deploy.s.sol`](script/Deploy.s.sol): minimal non-local deploy stub
+
+## Contract Model
+
+`ForexSwap` inherits `BaseCustomCurve`, so it opts into v4 custom accounting rather than implementing a standalone pool. The important contract responsibilities are:
+
+- custom swap math via `_getUnspecifiedAmount`, `_computeAmountOut`, and `_computeAmountIn`
+- owner-managed parameters for `mean`, `width`, and `swapFee`
+- pause and unpause controls
+- hook-local liquidity share accounting for deposits and withdrawals
+
+The current implementation is intentionally conservative. It uses simplified reserve assumptions and approximations rather than a production-ready statistical engine.
+
+## Prerequisites
+
+This repo expects git submodules to be present. A plain clone is not enough.
 
 ```sh
-$ git clone https://github.com/robertleifke/forex-swap
-$ cd forex-swap
-$ bun install
-$ forge build
+git clone https://github.com/robertleifke/forex-swap
+cd forex-swap
+git submodule update --init --recursive
+bun install
+forge build
 ```
 
-## Deploy pools
+If `forge build` fails with missing imports under `lib/`, the submodules were not initialized correctly.
+
+## Local Development
+
+The quickest path is a local Anvil deployment:
+
+```sh
+anvil
+forge script script/Anvil.s.sol:AnvilScript \
+  --rpc-url http://localhost:8545 \
+  --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+  --broadcast -vv
+```
+
+Or use:
+
+```sh
+./deploy-local.sh
+```
+
+The Anvil script deploys:
+
+- a local v4 `PoolManager`
+- the `ForexSwap` hook at a mined address with the required hook permission bits
+- test routers
+- mock ERC20s
+- a sample pool and initial liquidity
+
+## Using the Hook
+
+Example setup:
 
 ```solidity
-IPoolManager poolManager = 
-ForexSwap forexSwapHook = new ForexSwap(poolManager);
+IPoolManager poolManager = /* deployed v4 PoolManager */;
+ForexSwap forexSwap = new ForexSwap(poolManager);
 
 PoolKey memory poolKey = PoolKey({
     currency0: Currency.wrap(address(token0)),
     currency1: Currency.wrap(address(token1)),
-    fee: 0,
-    tickSpacing: 0,
-    hooks: IHooks(address(forexSwapHook))
+    fee: LPFeeLibrary.DYNAMIC_FEE_FLAG,
+    tickSpacing: 60,
+    hooks: forexSwap
 });
-forexSwapHook.initializePool(poolKey);
 
-forexSwapHook.updateForexSwapParams(
-    1.1e18,  // mu = 1.1 (10% mean premium)
-    2.5e17,  // sigma = 0.25 (25% volatility)
-    5e15     // swapFee = 0.5%
+poolManager.initialize(poolKey, TickMath.getSqrtPriceAtTick(0));
+
+forexSwap.updateLogNormalParams(
+    1.1e18, // mean
+    2.5e17, // width
+    5e15    // 0.5% swap fee
 );
 ```
 
+Two important v4-specific notes:
+
+- The hook address must be mined so its low bits advertise the enabled callbacks.
+- `PoolManager` owns execution. The hook is not a standalone AMM contract.
+
 ## Testing
 
-Run comprehensive tests for the ForexSwap implementation:
-
 ```sh
-# Run all tests
-$ forge test
-
-# Run with detailed output
-$ forge test -vvv
-
-# Run gas reporting
-$ forge test --gas-report
-
-# Run specific ForexSwap tests
-$ forge test --match-contract ForexSwap -vv
+forge test
+forge test -vvv
+forge test --gas-report
+forge test --match-contract ForexSwapCorrectTest -vv
 ```
 
+## Current Caveats
 
-## Routing
+- The non-local deploy script uses a placeholder `PoolManager` address and is not production-ready.
+- The pricing logic is simplified. It should be treated as a prototype, not a validated FX curve.
 
-### Inverse Normal CDF Implementation
+## License
 
-ForexSwap uses the Beasley-Springer-Moro algorithm for computing Φ⁻¹(u):
-
-```solidity
-function _improvedInverseNormalCDF(uint256 u) internal pure returns (int256) {
-    // Bounded to [-6σ, +6σ] for numerical stability
-}
-```
-
-### Newton-Raphson Iteration
-
-For swap calculations, ForexSwap employs iterative solving:
-
-```solidity
-function _solveExactInputWithLiquidity(...) internal view returns (...) {
-    // Initial guess using constant product
-    // Newton-Raphson iteration to solve: Φ⁻¹(x'/L) + Φ⁻¹(y'/L) = k
-    // Convergence threshold: 1e-6 in WAD precision
-    // Maximum iterations: 50
-}
-```
-## 📄 License
-
-This project is licensed under MIT - see the [LICENSE](LICENSE) file for details.
-
----
+MIT. See [`LICENSE.md`](LICENSE.md).

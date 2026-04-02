@@ -1,9 +1,9 @@
 {
-  "name": "numo2",
-  "description": "A test repository for Numo",
+  "name": "forexswap",
+  "description": "A test repository for ForexSwap",
   "version": "1.0.0",
   "author": {
-    "name": "numo2",
+    "name": "ForexSwap",
     "url": "https://github.com/robertleifke"
   },
   "dependencies": {
