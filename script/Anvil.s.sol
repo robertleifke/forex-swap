@@ -20,6 +20,7 @@ contract AnvilScript is Script {
 
         console.log("PoolManager:", address(manager));
         console.log("ForexSwap:", address(forexSwap));
+        // solhint-disable-next-line max-line-length
         console.log("Note: pool initialization requires a hook address whose low bits advertise the enabled callbacks.");
     }
 }

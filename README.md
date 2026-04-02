@@ -2,7 +2,8 @@
 
 > WARNING: This code has not been audited. Treat it as experimental.
 
-ForexSwap is a Uniswap v4 hook prototype for FX-style pools. It plugs custom accounting into the v4 swap and liquidity lifecycle so the pool can use a custom curve instead of the default concentrated-liquidity math.
+ForexSwap is a Uniswap v4 hook prototype for FX-style pools. It plugs custom accounting into the v4 swap and liquidity
+lifecycle so the pool can use a custom curve instead of the default concentrated-liquidity math.
 
 The implementation in this repo follows the v4 architecture described in the official overview:
 
@@ -12,6 +13,7 @@ The implementation in this repo follows the v4 architecture described in the off
 - Flash accounting is handled by v4; this repo focuses on custom accounting and curve logic.
 
 Official reference:
+
 - [Uniswap v4 overview](https://docs.uniswap.org/contracts/v4/overview)
 
 ## Repo Layout
@@ -23,14 +25,16 @@ Official reference:
 
 ## Contract Model
 
-`ForexSwap` inherits `BaseCustomCurve`, so it opts into v4 custom accounting rather than implementing a standalone pool. The important contract responsibilities are:
+`ForexSwap` inherits `BaseCustomCurve`, so it opts into v4 custom accounting rather than implementing a standalone pool.
+The important contract responsibilities are:
 
 - custom swap math via `_getUnspecifiedAmount`, `_computeAmountOut`, and `_computeAmountIn`
 - owner-managed parameters for `mean`, `width`, and `swapFee`
 - pause and unpause controls
 - hook-local liquidity share accounting for deposits and withdrawals
 
-The current implementation is intentionally conservative. It uses simplified reserve assumptions and approximations rather than a production-ready statistical engine.
+The current implementation is intentionally conservative. It uses simplified reserve assumptions and approximations
+rather than a production-ready statistical engine.
 
 ## Prerequisites
 

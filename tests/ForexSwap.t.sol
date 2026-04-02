@@ -138,6 +138,7 @@ contract ForexSwapHarness is ForexSwap {
         return (totalValueInToken1 * 1e18) / totalSupply;
     }
 
+    // solhint-disable-next-line code-complexity
     function symmetricLocalPriceWad() external view returns (uint256) {
         if (poolState.liquidity == 0) return 0;
 

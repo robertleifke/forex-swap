@@ -513,6 +513,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         PoolState memory state = poolState;
         if (targetOut == 0 || targetOut >= state.reserve0) revert InsufficientLiquidity();
 
+        // solhint-disable-next-line max-line-length
         return _solveLeastExactInput(targetOut, Math.max(state.reserve1, 1e6), _maxReserve1(state.liquidity) * 4, false);
     }
 
@@ -580,6 +581,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         return high;
     }
 
+    // solhint-disable-next-line code-complexity
     function _solveLeastExactInput(
         uint256 targetOut,
         uint256 initialHigh,
