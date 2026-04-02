@@ -336,6 +336,7 @@ contract ForexSwapCorrectTest is Test {
     uint256 internal constant MULTI_SWAP_DRIFT_ABS_TOLERANCE = 8e1;
     uint256 internal constant MULTI_SWAP_DRIFT_REL_TOLERANCE = 8e1;
     uint256 internal constant ROUND_TRIP_STATE_ABS_TOLERANCE = 5e12;
+    bytes32 internal constant MINED_HOOK_SALT = bytes32(uint256(0x7f94));
 
     function setUp() public {
         poolManager = new PoolManager();
@@ -346,17 +347,9 @@ contract ForexSwapCorrectTest is Test {
                 | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
         );
 
-        bytes32 salt;
-        for (uint256 i = 0; i < 500_000; ++i) {
-            salt = bytes32(i);
-            address predicted = vm.computeCreate2Address(salt, initCodeHash, address(this));
-            if ((uint160(predicted) & ((1 << 14) - 1)) == flags) {
-                forexSwap = new ForexSwapHarness{ salt: salt }(poolManager);
-                return;
-            }
-        }
-
-        revert("failed to mine hook address");
+        address predicted = vm.computeCreate2Address(MINED_HOOK_SALT, initCodeHash, address(this));
+        if ((uint160(predicted) & ((1 << 14) - 1)) != flags) revert("invalid mined hook salt");
+        forexSwap = new ForexSwapHarness{ salt: MINED_HOOK_SALT }(poolManager);
     }
 
     function _seedBalancedPool() internal {
