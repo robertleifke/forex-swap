@@ -71,10 +71,10 @@ Or use:
 The Anvil script deploys:
 
 - a local v4 `PoolManager`
+- a minimal CREATE2 factory used to mine a valid hook address
 - the `ForexSwap` hook at a mined address with the required hook permission bits
-- test routers
-- mock ERC20s
-- a sample pool and initial liquidity
+
+It does not currently deploy test routers, mock ERC20s, or seed a sample pool.
 
 ## Using the Hook
 
