@@ -262,7 +262,8 @@ contract ForexSwapHarness is ForexSwap {
         returns (uint256 reserve0_, uint256 reserve1_, uint256 liquidity_)
     {
         PoolState memory state = poolState;
-        uint256 feeAmount = FullMath.mulDiv(amountIn, logNormalParams.swapFee, 1e18);
+        (uint256 hookFeeWad,) = this.quoteHookFee(amountIn, zeroForOne);
+        uint256 feeAmount = FullMath.mulDiv(amountIn, hookFeeWad, 1e18);
         uint256 effectiveIn = amountIn - feeAmount;
 
         if (zeroForOne) {
@@ -336,8 +337,6 @@ contract ForexSwapCorrectTest is Test {
     uint256 internal constant MULTI_SWAP_DRIFT_ABS_TOLERANCE = 8e1;
     uint256 internal constant MULTI_SWAP_DRIFT_REL_TOLERANCE = 8e1;
     uint256 internal constant ROUND_TRIP_STATE_ABS_TOLERANCE = 5e12;
-    bytes32 internal constant MINED_HOOK_SALT = bytes32(uint256(0x7f94));
-
     function setUp() public {
         poolManager = new PoolManager();
         bytes memory initCode = abi.encodePacked(type(ForexSwapHarness).creationCode, abi.encode(poolManager));
@@ -347,9 +346,20 @@ contract ForexSwapCorrectTest is Test {
                 | Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG | Hooks.BEFORE_SWAP_RETURNS_DELTA_FLAG
         );
 
-        address predicted = vm.computeCreate2Address(MINED_HOOK_SALT, initCodeHash, address(this));
+        bytes32 minedHookSalt = _mineHookSalt(initCodeHash, flags);
+        address predicted = vm.computeCreate2Address(minedHookSalt, initCodeHash, address(this));
         if ((uint160(predicted) & ((1 << 14) - 1)) != flags) revert("invalid mined hook salt");
-        forexSwap = new ForexSwapHarness{ salt: MINED_HOOK_SALT }(poolManager);
+        forexSwap = new ForexSwapHarness{ salt: minedHookSalt }(poolManager);
+    }
+
+    function _mineHookSalt(bytes32 initCodeHash, uint160 flags) internal view returns (bytes32 salt) {
+        for (uint256 candidate = 0; candidate < type(uint24).max; candidate++) {
+            salt = bytes32(candidate);
+            address predicted = vm.computeCreate2Address(salt, initCodeHash, address(this));
+            if ((uint160(predicted) & ((1 << 14) - 1)) == flags) return salt;
+        }
+
+        revert("hook salt not found");
     }
 
     function _seedBalancedPool() internal {
@@ -370,10 +380,22 @@ contract ForexSwapCorrectTest is Test {
 
     function test_updateLogNormalParams() external {
         forexSwap.updateLogNormalParams(12e17, 3e17, 4e15);
-        (uint256 mu, uint256 sigma, uint256 swapFee) = forexSwap.logNormalParams();
+        (uint256 mu, uint256 sigma, uint256 baseHookFeeWad) = forexSwap.logNormalParams();
         assertEq(mu, 12e17);
         assertEq(sigma, 3e17);
-        assertEq(swapFee, 4e15);
+        assertEq(baseHookFeeWad, 4e15);
+    }
+
+    function test_quoteHookFeeIncludesConfiguredInventoryAndVolatilityComponents() external {
+        _seedBalancedPool();
+
+        forexSwap.updateHookFeeModel(2e16, 5e17, 0, 9e16);
+        forexSwap.setRealizedVolatilityWad(3e16);
+
+        (uint256 hookFeeWad, uint256 hookFeeAmount) = forexSwap.quoteHookFee(1e18, true);
+
+        assertGt(hookFeeWad, 3e15);
+        assertEq(hookFeeAmount, (1e18 * hookFeeWad) / 1e18);
     }
 
     function test_bootstrapPlanUsesPoolPriceAndReturnsLPShares() external view {

@@ -41,17 +41,35 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     error ExponentOutOfBounds();
     error Int256CastOverflow();
 
-    event ParametersUpdated(uint256 newMean, uint256 newWidth, uint256 newSwapFee);
+    event MarketParametersUpdated(uint256 newMean, uint256 newWidth, uint256 newBaseHookFeeWad);
+    event HookFeeModelUpdated(
+        uint256 inventoryFeeScaleWad, uint256 volatilityFeeScaleWad, uint256 tenorFeeScaleWad, uint256 maxHookFeeWad
+    );
+    event RealizedVolatilityUpdated(uint256 realizedVolatilityWad);
     event LiquidityAdded(address indexed provider, uint256 amount0, uint256 amount1, uint256 shares);
     event LiquidityRemoved(address indexed provider, uint256 amount0, uint256 amount1, uint256 shares);
-    event SwapExecuted(address indexed trader, bool zeroForOne, uint256 amountIn, uint256 amountOut, uint256 feeAmount);
+    event SwapExecuted(
+        address indexed trader,
+        bool zeroForOne,
+        uint256 amountIn,
+        uint256 amountOut,
+        uint256 hookFeeWad,
+        uint256 hookFeeAmount
+    );
     event EmergencyPaused(address indexed admin);
     event EmergencyUnpaused(address indexed admin);
 
     struct LogNormalParams {
         uint256 mean;
         uint256 width;
-        uint256 swapFee;
+        uint256 baseHookFeeWad;
+    }
+
+    struct HookFeeModel {
+        uint256 inventoryFeeScaleWad;
+        uint256 volatilityFeeScaleWad;
+        uint256 tenorFeeScaleWad;
+        uint256 maxHookFeeWad;
     }
 
     struct PoolState {
@@ -85,7 +103,14 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
 
     mapping(address account => uint256 balance) public balanceOf;
     uint256 public totalSupply;
-    LogNormalParams public logNormalParams = LogNormalParams({ mean: 1e18, width: 2e17, swapFee: 3e15 });
+    LogNormalParams public logNormalParams = LogNormalParams({ mean: 1e18, width: 2e17, baseHookFeeWad: 3e15 });
+    HookFeeModel public hookFeeModel = HookFeeModel({
+        inventoryFeeScaleWad: 0,
+        volatilityFeeScaleWad: 0,
+        tenorFeeScaleWad: 0,
+        maxHookFeeWad: 1e17
+    });
+    uint256 public realizedVolatilityWad;
     PoolState public poolState;
 
     constructor(IPoolManager _poolManager) BaseCustomCurve(_poolManager) Ownable(msg.sender) { }
@@ -212,7 +237,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     function updateLogNormalParams(
         uint256 newMean,
         uint256 newWidth,
-        uint256 newSwapFee
+        uint256 newBaseHookFeeWad
     )
         external
         onlyOwner
@@ -220,13 +245,40 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     {
         if (newMean == 0 || newMean >= 100 * WAD) revert InvalidMean();
         if (newWidth == 0 || newWidth >= 2 * WAD) revert InvalidWidth();
-        if (newSwapFee >= WAD / 10) revert FeeTooHigh();
+        if (newBaseHookFeeWad >= WAD / 10) revert FeeTooHigh();
 
         logNormalParams.mean = newMean;
         logNormalParams.width = newWidth;
-        logNormalParams.swapFee = newSwapFee;
+        logNormalParams.baseHookFeeWad = newBaseHookFeeWad;
 
-        emit ParametersUpdated(newMean, newWidth, newSwapFee);
+        emit MarketParametersUpdated(newMean, newWidth, newBaseHookFeeWad);
+    }
+
+    function updateHookFeeModel(
+        uint256 inventoryFeeScaleWad,
+        uint256 volatilityFeeScaleWad,
+        uint256 tenorFeeScaleWad,
+        uint256 maxHookFeeWad
+    )
+        external
+        onlyOwner
+        whenNotPaused
+    {
+        if (maxHookFeeWad >= WAD / 10) revert FeeTooHigh();
+
+        hookFeeModel = HookFeeModel({
+            inventoryFeeScaleWad: inventoryFeeScaleWad,
+            volatilityFeeScaleWad: volatilityFeeScaleWad,
+            tenorFeeScaleWad: tenorFeeScaleWad,
+            maxHookFeeWad: maxHookFeeWad
+        });
+
+        emit HookFeeModelUpdated(inventoryFeeScaleWad, volatilityFeeScaleWad, tenorFeeScaleWad, maxHookFeeWad);
+    }
+
+    function setRealizedVolatilityWad(uint256 newRealizedVolatilityWad) external onlyOwner whenNotPaused {
+        realizedVolatilityWad = newRealizedVolatilityWad;
+        emit RealizedVolatilityUpdated(newRealizedVolatilityWad);
     }
 
     function emergencyPause() external onlyOwner {
@@ -334,6 +386,15 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     function quoteExactInputForSolve(uint256 amountIn, bool zeroForOne) external view returns (uint256 amountOut) {
         if (amountIn == 0 || poolState.liquidity == 0) return 0;
         return zeroForOne ? _quoteExactInput0For1(amountIn) : _quoteExactInput1For0(amountIn);
+    }
+
+    function quoteHookFee(uint256 amountIn, bool zeroForOne)
+        external
+        view
+        returns (uint256 hookFeeWad, uint256 hookFeeAmount)
+    {
+        hookFeeWad = _computeHookFeeWad(poolState, amountIn, zeroForOne);
+        hookFeeAmount = FullMath.mulDiv(amountIn, hookFeeWad, WAD);
     }
 
     function getPoolInfo()
@@ -450,7 +511,8 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
 
     function _executeExactInput0For1(uint256 amountIn) internal returns (uint256 amountOut) {
         PoolState memory state = poolState;
-        uint256 feeAmount = FullMath.mulDiv(amountIn, logNormalParams.swapFee, WAD);
+        uint256 hookFeeWad = _computeHookFeeWad(state, amountIn, true);
+        uint256 feeAmount = FullMath.mulDiv(amountIn, hookFeeWad, WAD);
         uint256 effectiveIn = amountIn - feeAmount;
 
         uint256 xAfterFee = state.reserve0 + feeAmount;
@@ -467,12 +529,13 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         poolState.reserve1 = newReserve1;
         poolState.liquidity = newLiquidity;
 
-        emit SwapExecuted(msg.sender, true, amountIn, amountOut, feeAmount);
+        emit SwapExecuted(msg.sender, true, amountIn, amountOut, hookFeeWad, feeAmount);
     }
 
     function _executeExactInput1For0(uint256 amountIn) internal returns (uint256 amountOut) {
         PoolState memory state = poolState;
-        uint256 feeAmount = FullMath.mulDiv(amountIn, logNormalParams.swapFee, WAD);
+        uint256 hookFeeWad = _computeHookFeeWad(state, amountIn, false);
+        uint256 feeAmount = FullMath.mulDiv(amountIn, hookFeeWad, WAD);
         uint256 effectiveIn = amountIn - feeAmount;
 
         uint256 yAfterFee = state.reserve1 + feeAmount;
@@ -489,7 +552,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         poolState.reserve1 = newReserve1;
         poolState.liquidity = newLiquidity;
 
-        emit SwapExecuted(msg.sender, false, amountIn, amountOut, feeAmount);
+        emit SwapExecuted(msg.sender, false, amountIn, amountOut, hookFeeWad, feeAmount);
     }
 
     function _executeExactOutput0For1(uint256 amountOut) internal returns (uint256 amountIn) {
@@ -521,7 +584,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         PoolState memory state = poolState;
         if (state.liquidity == 0 || amountIn == 0) return 0;
 
-        uint256 feeAmount = FullMath.mulDiv(amountIn, logNormalParams.swapFee, WAD);
+        uint256 feeAmount = FullMath.mulDiv(amountIn, _computeHookFeeWad(state, amountIn, true), WAD);
         uint256 effectiveIn = amountIn - feeAmount;
 
         uint256 xAfterFee = state.reserve0 + feeAmount;
@@ -538,7 +601,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         PoolState memory state = poolState;
         if (state.liquidity == 0 || amountIn == 0) return 0;
 
-        uint256 feeAmount = FullMath.mulDiv(amountIn, logNormalParams.swapFee, WAD);
+        uint256 feeAmount = FullMath.mulDiv(amountIn, _computeHookFeeWad(state, amountIn, false), WAD);
         uint256 effectiveIn = amountIn - feeAmount;
 
         uint256 yAfterFee = state.reserve1 + feeAmount;
@@ -549,6 +612,54 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         uint256 newReserve0 = _solveReserve0(newReserve1, newLiquidity);
         if (newReserve0 >= state.reserve0) return 0;
         return state.reserve0 - newReserve0;
+    }
+
+    function _computeHookFeeWad(
+        PoolState memory state,
+        uint256 amountIn,
+        bool zeroForOne
+    )
+        internal
+        view
+        virtual
+        returns (uint256 hookFeeWad)
+    {
+        amountIn;
+        hookFeeWad = logNormalParams.baseHookFeeWad;
+        hookFeeWad += _inventoryFeeWad(state, zeroForOne);
+        hookFeeWad += _volatilityFeeWad();
+        hookFeeWad += _tenorFeeWad();
+
+        uint256 maxHookFeeWad = hookFeeModel.maxHookFeeWad;
+        if (hookFeeWad > maxHookFeeWad) hookFeeWad = maxHookFeeWad;
+    }
+
+    function _inventoryFeeWad(PoolState memory state, bool zeroForOne) internal view virtual returns (uint256) {
+        zeroForOne;
+        uint256 scale = hookFeeModel.inventoryFeeScaleWad;
+        if (scale == 0 || state.liquidity == 0) return 0;
+
+        uint256 reserve0ValueInToken1 = FullMath.mulDiv(state.reserve0, _price0(state.reserve0, state.liquidity), WAD);
+        uint256 totalValueInToken1 = reserve0ValueInToken1 + state.reserve1;
+        if (totalValueInToken1 == 0) return 0;
+
+        uint256 imbalance = reserve0ValueInToken1 > state.reserve1
+            ? reserve0ValueInToken1 - state.reserve1
+            : state.reserve1 - reserve0ValueInToken1;
+        uint256 imbalanceWad = FullMath.mulDiv(imbalance, WAD, totalValueInToken1);
+        return FullMath.mulDiv(imbalanceWad, scale, WAD);
+    }
+
+    function _volatilityFeeWad() internal view virtual returns (uint256) {
+        uint256 scale = hookFeeModel.volatilityFeeScaleWad;
+        if (scale == 0 || realizedVolatilityWad == 0) return 0;
+        return FullMath.mulDiv(realizedVolatilityWad, scale, WAD);
+    }
+
+    function _tenorFeeWad() internal view virtual returns (uint256) {
+        uint256 scale = hookFeeModel.tenorFeeScaleWad;
+        if (scale == 0) return 0;
+        return 0;
     }
 
     function _solveLiquidityFromReserves(
