@@ -14,6 +14,7 @@ import {LPFeeLibrary} from "v4-core/src/libraries/LPFeeLibrary.sol";
 import {Hooks} from "v4-core/src/libraries/Hooks.sol";
 import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {PoolSwapTest} from "v4-core/src/test/PoolSwapTest.sol";
+import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 
 contract Create2FactorySepolia {
     error DeploymentFailed();
@@ -130,11 +131,10 @@ contract BaseSepoliaE2E is BaseScript {
                 amount1Desired: ADD_AMOUNT1_DESIRED,
                 amount0Min: 0,
                 amount1Min: 0,
-                to: broadcaster,
                 deadline: deadline,
                 tickLower: TICK_LOWER,
                 tickUpper: TICK_UPPER,
-                salt: ZERO_SALT
+                userInputSalt: ZERO_SALT
             })
         );
 
@@ -158,7 +158,7 @@ contract BaseSepoliaE2E is BaseScript {
         uint256 token1BalanceBefore = MockERC20(Currency.unwrap(currency1)).balanceOf(broadcaster);
         swapRouter.swap(
             key,
-            IPoolManager.SwapParams({
+            SwapParams({
                 zeroForOne: true,
                 amountSpecified: -int256(SWAP_AMOUNT_IN),
                 sqrtPriceLimitX96: TickMath.MIN_SQRT_PRICE + 1
@@ -181,7 +181,7 @@ contract BaseSepoliaE2E is BaseScript {
                 deadline: deadline,
                 tickLower: TICK_LOWER,
                 tickUpper: TICK_UPPER,
-                salt: ZERO_SALT
+                userInputSalt: ZERO_SALT
             })
         );
     }

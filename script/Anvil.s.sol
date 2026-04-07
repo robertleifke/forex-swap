@@ -29,7 +29,7 @@ contract AnvilScript is Script {
 
     function run() public {
         vm.startBroadcast();
-        manager = IPoolManager(address(new PoolManager()));
+        manager = IPoolManager(address(new PoolManager(msg.sender)));
         Create2Factory factory = new Create2Factory();
         bytes memory creationCode = abi.encodePacked(type(ForexSwap).creationCode, abi.encode(manager));
         bytes32 initCodeHash = keccak256(creationCode);

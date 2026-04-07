@@ -4,10 +4,10 @@ pragma solidity ^0.8.26;
 import { Test } from "forge-std/src/Test.sol";
 import { console2 } from "forge-std/src/console2.sol";
 import { ForexSwap } from "../src/ForexSwap.sol";
-import { PoolManager } from "v4-core/src/PoolManager.sol";
-import { IPoolManager } from "v4-core/src/interfaces/IPoolManager.sol";
-import { Hooks } from "v4-core/src/libraries/Hooks.sol";
-import { FullMath } from "v4-core/src/libraries/FullMath.sol";
+import { PoolManager } from "@uniswap/v4-core/src/PoolManager.sol";
+import { IPoolManager } from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import { Hooks } from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import { FullMath } from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
 contract ForexSwapHarness is ForexSwap {
     uint160 internal constant SQRT_PRICE_1_1 = 79_228_162_514_264_337_593_543_950_336;
@@ -73,11 +73,10 @@ contract ForexSwapHarness is ForexSwap {
                 amount1Desired: amount1Desired,
                 amount0Min: 0,
                 amount1Min: 0,
-                to: address(this),
                 deadline: block.timestamp + 1,
                 tickLower: 0,
                 tickUpper: 0,
-                salt: bytes32(0)
+                userInputSalt: bytes32(0)
             })
         );
 
@@ -191,11 +190,10 @@ contract ForexSwapHarness is ForexSwap {
                 amount1Desired: amount1Desired,
                 amount0Min: 0,
                 amount1Min: 0,
-                to: to,
                 deadline: block.timestamp + 1,
                 tickLower: 0,
                 tickUpper: 0,
-                salt: bytes32(0)
+                userInputSalt: bytes32(0)
             })
         );
 
@@ -328,7 +326,7 @@ contract ForexSwapCorrectTest is Test {
     uint256 internal constant MULTI_SWAP_DRIFT_REL_TOLERANCE = 8e1;
     uint256 internal constant ROUND_TRIP_STATE_ABS_TOLERANCE = 5e12;
     function setUp() public {
-        poolManager = new PoolManager();
+        poolManager = new PoolManager(address(this));
         bytes memory initCode = abi.encodePacked(type(ForexSwapHarness).creationCode, abi.encode(poolManager));
         bytes32 initCodeHash = keccak256(initCode);
         uint160 flags = uint160(

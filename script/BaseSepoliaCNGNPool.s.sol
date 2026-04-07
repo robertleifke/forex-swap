@@ -107,11 +107,10 @@ contract BaseSepoliaCNGNPool is BaseScript {
                 amount1Desired: cngnAmount,
                 amount0Min: 0,
                 amount1Min: 0,
-                to: broadcaster,
                 deadline: deadline,
                 tickLower: TICK_LOWER,
                 tickUpper: TICK_UPPER,
-                salt: ZERO_SALT
+                userInputSalt: ZERO_SALT
             })
         );
 

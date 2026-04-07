@@ -15,6 +15,7 @@ import {TickMath} from "v4-core/src/libraries/TickMath.sol";
 import {PoolSwapTest} from "v4-core/src/test/PoolSwapTest.sol";
 import {FullMath} from "v4-core/src/libraries/FullMath.sol";
 import {FixedPoint96} from "v4-core/src/libraries/FixedPoint96.sol";
+import {SwapParams} from "v4-core/src/types/PoolOperation.sol";
 import {Math} from "v4-core/lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
 
 interface IERC20Like {
@@ -189,11 +190,10 @@ contract BaseSepoliaCNGNSwapE2E is BaseScript {
                 amount1Desired: amount1Desired,
                 amount0Min: 0,
                 amount1Min: 0,
-                to: broadcaster,
                 deadline: deadline,
                 tickLower: TICK_LOWER,
                 tickUpper: TICK_UPPER,
-                salt: ZERO_SALT
+                userInputSalt: ZERO_SALT
             })
         );
 
@@ -233,7 +233,7 @@ contract BaseSepoliaCNGNSwapE2E is BaseScript {
         uint256 outBefore = tokenOut.balanceOf(broadcaster);
         swapRouter.swap(
             key,
-            IPoolManager.SwapParams({
+            SwapParams({
                 zeroForOne: zeroForOne,
                 amountSpecified: -int256(amountIn),
                 sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
@@ -291,7 +291,7 @@ contract BaseSepoliaCNGNSwapE2E is BaseScript {
                 deadline: deadline,
                 tickLower: TICK_LOWER,
                 tickUpper: TICK_UPPER,
-                salt: ZERO_SALT
+                userInputSalt: ZERO_SALT
             })
         );
     }

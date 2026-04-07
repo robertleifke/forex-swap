@@ -2,21 +2,23 @@
 pragma solidity ^0.8.26;
 
 import { BaseCustomCurve } from "uniswap-hooks/src/base/BaseCustomCurve.sol";
-import { IPoolManager } from "v4-core/src/interfaces/IPoolManager.sol";
-import { BalanceDelta, toBalanceDelta, BalanceDeltaLibrary } from "v4-core/src/types/BalanceDelta.sol";
-import { Math } from "v4-core/lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
-import { Ownable } from "v4-core/lib/openzeppelin-contracts/contracts/access/Ownable.sol";
-import { Pausable } from "v4-core/lib/openzeppelin-contracts/contracts/utils/Pausable.sol";
-import { ReentrancyGuard } from "v4-core/lib/openzeppelin-contracts/contracts/utils/ReentrancyGuard.sol";
-import { FullMath } from "v4-core/src/libraries/FullMath.sol";
-import { FixedPoint96 } from "v4-core/src/libraries/FixedPoint96.sol";
-import { StateLibrary } from "v4-core/src/libraries/StateLibrary.sol";
-import { PoolIdLibrary } from "v4-core/src/types/PoolId.sol";
-import { PoolId } from "v4-core/src/types/PoolId.sol";
-import { PoolKey } from "v4-core/src/types/PoolKey.sol";
-import { Currency } from "v4-core/src/types/Currency.sol";
-import { Hooks } from "v4-core/src/libraries/Hooks.sol";
-import { SafeCast } from "v4-core/src/libraries/SafeCast.sol";
+import { BaseHook } from "uniswap-hooks/src/base/BaseHook.sol";
+import { IPoolManager } from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import { BalanceDelta, toBalanceDelta, BalanceDeltaLibrary } from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import { Math } from "@openzeppelin/contracts/utils/math/Math.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import { Pausable } from "@openzeppelin/contracts/utils/Pausable.sol";
+import { ReentrancyGuard } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import { FullMath } from "@uniswap/v4-core/src/libraries/FullMath.sol";
+import { FixedPoint96 } from "@uniswap/v4-core/src/libraries/FixedPoint96.sol";
+import { StateLibrary } from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+import { PoolIdLibrary } from "@uniswap/v4-core/src/types/PoolId.sol";
+import { PoolId } from "@uniswap/v4-core/src/types/PoolId.sol";
+import { PoolKey } from "@uniswap/v4-core/src/types/PoolKey.sol";
+import { Currency } from "@uniswap/v4-core/src/types/Currency.sol";
+import { Hooks } from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import { SafeCast } from "@uniswap/v4-core/src/libraries/SafeCast.sol";
+import { SwapParams } from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import { CurrencySettler } from "uniswap-hooks/src/utils/CurrencySettler.sol";
 import { Gaussian } from "./libraries/Gaussian.sol";
 import { SignedWadMath } from "./libraries/SignedWadMath.sol";
@@ -211,7 +213,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     uint256 private pendingAdminFeeAmount;
     bool private pendingAdminFeeSet;
 
-    constructor(IPoolManager _poolManager) BaseCustomCurve(_poolManager) Ownable(msg.sender) { }
+    constructor(IPoolManager _poolManager) BaseHook(_poolManager) Ownable(msg.sender) { }
 
     function _beforeInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96)
         internal
@@ -225,7 +227,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         return selector;
     }
 
-    function _getUnspecifiedAmount(IPoolManager.SwapParams calldata swapParams)
+    function _getUnspecifiedAmount(SwapParams calldata swapParams)
         internal
         override
         whenNotPaused
@@ -249,9 +251,10 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
                 : _denormalizeAmount1Up(_executeExactOutput1For0(_normalizeAmount0(specifiedAmount)));
         }
 
-        pendingAdminFeePoolId = poolKey.toId();
+        PoolKey memory key = poolKey();
+        pendingAdminFeePoolId = key.toId();
         pendingAdminFeeCurrency =
-            (swapParams.amountSpecified < 0 == swapParams.zeroForOne) ? poolKey.currency1 : poolKey.currency0;
+            (swapParams.amountSpecified < 0 == swapParams.zeroForOne) ? key.currency1 : key.currency0;
         pendingAdminFeeAmount = unspecifiedAmount;
         pendingAdminFeeSet = true;
     }
@@ -294,7 +297,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         override
         returns (uint256 amount0, uint256 amount1, uint256 shares)
     {
-        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolKey.toId());
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolKey().toId());
         AddLiquidityPlan memory plan = _planAddLiquidity(sqrtPriceX96, params);
         return (_denormalizeAmount0(plan.amount0), _denormalizeAmount1(plan.amount1), plan.shares);
     }
@@ -324,19 +327,19 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
 
         PoolState memory stateBefore = poolState;
         bool bootstrap = stateBefore.liquidity == 0;
-        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolKey.toId());
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolKey().toId());
         AddLiquidityPlan memory plan = _planAddLiquidity(sqrtPriceX96, params);
 
         poolState.reserve0 += plan.amount0;
         poolState.reserve1 += plan.amount1;
         poolState.liquidity += plan.deltaL;
 
-        balanceOf[params.to] += shares;
+        balanceOf[msg.sender] += shares;
         totalSupply += shares;
 
-        emit LiquidityAdded(params.to, _denormalizeAmount0(plan.amount0), _denormalizeAmount1(plan.amount1), shares);
+        emit LiquidityAdded(msg.sender, _denormalizeAmount0(plan.amount0), _denormalizeAmount1(plan.amount1), shares);
         emit LiquiditySettlementTrace(
-            params.to,
+            msg.sender,
             bootstrap,
             _denormalizeAmount0(stateBefore.reserve0),
             _denormalizeAmount1(stateBefore.reserve1),
@@ -498,7 +501,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     {
         if (block.timestamp > deadline) revert DeadlineExpired();
 
-        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolKey.toId());
+        (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolKey().toId());
         AddLiquidityPlan memory plan = _planAddLiquidity(
             sqrtPriceX96,
             AddLiquidityParams({
@@ -506,11 +509,10 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
                 amount1Desired: amount1Desired,
                 amount0Min: amount0Min,
                 amount1Min: amount1Min,
-                to: msg.sender,
                 deadline: deadline,
                 tickLower: 0,
                 tickUpper: 0,
-                salt: bytes32(0)
+                userInputSalt: bytes32(0)
             })
         );
 
@@ -603,7 +605,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         return (_denormalizeAmount0(state.reserve0), _denormalizeAmount1(state.reserve1), state.liquidity, priceWad, super.paused());
     }
 
-    function _afterSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata, BalanceDelta, bytes calldata)
+    function _afterSwap(address, PoolKey calldata key, SwapParams calldata, BalanceDelta, bytes calldata)
         internal
         override
         returns (bytes4, int128)
@@ -963,6 +965,26 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
 
         uint256 maxHookFeeWad = hookFeeModel.maxHookFeeWad;
         if (hookFeeWad > maxHookFeeWad) hookFeeWad = maxHookFeeWad;
+    }
+
+    function _getSwapFeeAmount(SwapParams calldata params, uint256 unspecifiedAmount)
+        internal
+        override
+        returns (uint256 swapFeeAmount)
+    {
+        PoolState memory state = poolState;
+        if (params.amountSpecified < 0) {
+            uint256 specifiedAmount = uint256(-params.amountSpecified);
+            uint256 normalizedSpecifiedAmount = params.zeroForOne
+                ? _normalizeAmount0(specifiedAmount)
+                : _normalizeAmount1(specifiedAmount);
+            return FullMath.mulDiv(normalizedSpecifiedAmount, _computeHookFeeWad(state, normalizedSpecifiedAmount, params.zeroForOne), WAD);
+        }
+
+        uint256 normalizedInputAmount = params.zeroForOne
+            ? _normalizeAmount0(unspecifiedAmount)
+            : _normalizeAmount1(unspecifiedAmount);
+        return FullMath.mulDiv(normalizedInputAmount, _computeHookFeeWad(state, normalizedInputAmount, params.zeroForOne), WAD);
     }
 
     function _inventoryFeeWad(PoolState memory state, bool zeroForOne) internal view virtual returns (uint256) {
@@ -1339,7 +1361,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     }
 
     function unlockCallback(bytes calldata rawData)
-        external
+        public
         virtual
         override
         onlyPoolManager
@@ -1360,7 +1382,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         ModifyLiquidityCallbackData memory data = abi.decode(callbackData.data, (ModifyLiquidityCallbackData));
         int128 amount0 = 0;
         int128 amount1 = 0;
-        PoolKey memory key = poolKey;
+        PoolKey memory key = poolKey();
 
         if (data.amount0 < 0) {
             key.currency0.settle(poolManager, address(this), uint256(int256(-data.amount0)), true);

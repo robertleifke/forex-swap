@@ -38,7 +38,7 @@ contract BaseSepoliaCNGNRemoveLiquidity is BaseScript {
                 deadline: block.timestamp + 1 hours,
                 tickLower: TICK_LOWER,
                 tickUpper: TICK_UPPER,
-                salt: ZERO_SALT
+                userInputSalt: ZERO_SALT
             })
         );
 

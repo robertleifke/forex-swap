@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
-import { FullMath } from "v4-core/src/libraries/FullMath.sol";
+import { FullMath } from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
 library SignedWadMath {
     int256 internal constant WAD_INT = 1e18;

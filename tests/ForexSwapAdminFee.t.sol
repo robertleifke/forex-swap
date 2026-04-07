@@ -5,16 +5,17 @@ import { Test } from "forge-std/src/Test.sol";
 import { ForexSwap } from "../src/ForexSwap.sol";
 import { BaseCustomAccounting } from "uniswap-hooks/src/base/BaseCustomAccounting.sol";
 import { CurrencySettler } from "uniswap-hooks/src/utils/CurrencySettler.sol";
-import { PoolManager } from "v4-core/src/PoolManager.sol";
-import { IPoolManager } from "v4-core/src/interfaces/IPoolManager.sol";
-import { IHooks } from "v4-core/src/interfaces/IHooks.sol";
-import { Hooks } from "v4-core/src/libraries/Hooks.sol";
-import { TickMath } from "v4-core/src/libraries/TickMath.sol";
-import { BalanceDelta } from "v4-core/src/types/BalanceDelta.sol";
-import { Currency } from "v4-core/src/types/Currency.sol";
-import { PoolId } from "v4-core/src/types/PoolId.sol";
-import { PoolIdLibrary } from "v4-core/src/types/PoolId.sol";
-import { PoolKey } from "v4-core/src/types/PoolKey.sol";
+import { PoolManager } from "@uniswap/v4-core/src/PoolManager.sol";
+import { IPoolManager } from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import { IHooks } from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import { Hooks } from "@uniswap/v4-core/src/libraries/Hooks.sol";
+import { TickMath } from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import { BalanceDelta } from "@uniswap/v4-core/src/types/BalanceDelta.sol";
+import { Currency } from "@uniswap/v4-core/src/types/Currency.sol";
+import { PoolId } from "@uniswap/v4-core/src/types/PoolId.sol";
+import { PoolIdLibrary } from "@uniswap/v4-core/src/types/PoolId.sol";
+import { PoolKey } from "@uniswap/v4-core/src/types/PoolKey.sol";
+import { SwapParams } from "@uniswap/v4-core/src/types/PoolOperation.sol";
 import { MockERC20 } from "solmate/src/test/utils/mocks/MockERC20.sol";
 
 contract SimplePoolSwapRouter {
@@ -25,14 +26,14 @@ contract SimplePoolSwapRouter {
     struct CallbackData {
         address sender;
         PoolKey key;
-        IPoolManager.SwapParams params;
+        SwapParams params;
     }
 
     constructor(IPoolManager _manager) {
         manager = _manager;
     }
 
-    function swap(PoolKey memory key, IPoolManager.SwapParams memory params) external returns (BalanceDelta delta) {
+    function swap(PoolKey memory key, SwapParams memory params) external returns (BalanceDelta delta) {
         delta = abi.decode(manager.unlock(abi.encode(CallbackData({ sender: msg.sender, key: key, params: params }))), (BalanceDelta));
     }
 
@@ -76,7 +77,7 @@ contract ForexSwapAdminFeeIntegrationTest is Test {
     address internal attacker = address(0x3333);
 
     function setUp() public {
-        manager = new PoolManager();
+        manager = new PoolManager(address(this));
         swapRouter = new SimplePoolSwapRouter(manager);
 
         MockERC20 tokenA = new MockERC20("TESTA", "TA", 18);
@@ -118,11 +119,10 @@ contract ForexSwapAdminFeeIntegrationTest is Test {
                 amount1Desired: 5e17,
                 amount0Min: 0,
                 amount1Min: 0,
-                to: address(this),
                 deadline: block.timestamp + 1,
                 tickLower: 0,
                 tickUpper: 0,
-                salt: bytes32(0)
+                userInputSalt: bytes32(0)
             })
         );
     }
@@ -279,7 +279,7 @@ contract ForexSwapAdminFeeIntegrationTest is Test {
     function _swapExactInput(bool zeroForOne, uint256 amountIn) internal returns (BalanceDelta) {
         return swapRouter.swap(
             key,
-            IPoolManager.SwapParams({
+            SwapParams({
                 zeroForOne: zeroForOne,
                 amountSpecified: -int256(amountIn),
                 sqrtPriceLimitX96: zeroForOne ? TickMath.MIN_SQRT_PRICE + 1 : TickMath.MAX_SQRT_PRICE - 1
