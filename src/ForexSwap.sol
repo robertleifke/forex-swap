@@ -13,8 +13,13 @@ import { FixedPoint96 } from "v4-core/src/libraries/FixedPoint96.sol";
 import { StateLibrary } from "v4-core/src/libraries/StateLibrary.sol";
 import { PoolIdLibrary } from "v4-core/src/types/PoolId.sol";
 import { PoolKey } from "v4-core/src/types/PoolKey.sol";
+import { Currency } from "v4-core/src/types/Currency.sol";
 import { Gaussian } from "./libraries/Gaussian.sol";
 import { SignedWadMath } from "./libraries/SignedWadMath.sol";
+
+interface IERC20Decimals {
+    function decimals() external view returns (uint8);
+}
 
 /**
  * @title Forex Swap
@@ -40,14 +45,32 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     error NonMonotonicQuote();
     error ExponentOutOfBounds();
     error Int256CastOverflow();
+    error UnsupportedTokenDecimals();
+    error TokenDecimalsQueryFailed();
+    error InvalidInventoryResponse();
+    error BootstrapClipTooLarge();
 
     event MarketParametersUpdated(uint256 newMean, uint256 newWidth, uint256 newBaseHookFeeWad);
     event HookFeeModelUpdated(
         uint256 inventoryFeeScaleWad, uint256 volatilityFeeScaleWad, uint256 tenorFeeScaleWad, uint256 maxHookFeeWad
     );
+    event InventoryResponseUpdated(uint256 inventoryResponseWad);
     event RealizedVolatilityUpdated(uint256 realizedVolatilityWad);
     event LiquidityAdded(address indexed provider, uint256 amount0, uint256 amount1, uint256 shares);
     event LiquidityRemoved(address indexed provider, uint256 amount0, uint256 amount1, uint256 shares);
+    event LiquiditySettlementTrace(
+        address indexed provider,
+        bool bootstrap,
+        uint256 reserve0Before,
+        uint256 reserve1Before,
+        uint256 reserve0After,
+        uint256 reserve1After,
+        uint256 amount0Settled,
+        uint256 amount1Settled,
+        uint256 normalizedAmount0Settled,
+        uint256 normalizedAmount1Settled,
+        uint256 shares
+    );
     event SwapExecuted(
         address indexed trader,
         bool zeroForOne,
@@ -85,6 +108,27 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         uint256 deltaL;
     }
 
+    struct BootstrapTrace {
+        uint256 priceWad;
+        uint256 desiredPriceWad;
+        uint256 normalizedAmount0Desired;
+        uint256 normalizedAmount1Desired;
+        uint256 xRatio;
+        uint256 yRatio;
+        uint256 requiredYForX;
+        uint256 requiredXForY;
+        uint256 clip0Bps;
+        uint256 clip1Bps;
+        bool amount0Limited;
+        bool stableExact;
+        uint256 amount0;
+        uint256 amount1;
+        uint256 rawAmount0;
+        uint256 rawAmount1;
+        uint256 deltaL;
+        uint256 shares;
+    }
+
     struct RemoveLiquidityPlan {
         uint256 amount0;
         uint256 amount1;
@@ -94,6 +138,9 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
 
     uint256 private constant WAD = 1e18;
     uint256 private constant SEARCH_STEPS = 64;
+    uint256 private constant MAX_MEAN_WAD = 10_000e18;
+    uint256 private constant STABLE_BOOTSTRAP_PRICE_TOLERANCE_BPS = 500;
+    uint256 private constant MAX_BOOTSTRAP_CLIP_BPS = 50;
     // Minimum admissible bootstrap tail mass in WAD space.
     // This bounds liquidity amplification in deltaL = amount0 * WAD / xRatio
     // and keeps the accepted region above CDF tail noise.
@@ -112,8 +159,25 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     });
     uint256 public realizedVolatilityWad;
     PoolState public poolState;
+    uint256 public inventoryResponseWad = 25e16;
+    uint8 public token0Decimals = 18;
+    uint8 public token1Decimals = 18;
+    uint256 private token0Scale = 1;
+    uint256 private token1Scale = 1;
 
     constructor(IPoolManager _poolManager) BaseCustomCurve(_poolManager) Ownable(msg.sender) { }
+
+    function _beforeInitialize(address sender, PoolKey calldata key, uint160 sqrtPriceX96)
+        internal
+        override
+        returns (bytes4)
+    {
+        bytes4 selector = super._beforeInitialize(sender, key, sqrtPriceX96);
+        (uint8 loadedToken0Decimals, uint8 loadedToken1Decimals) =
+            (_loadTokenDecimals(key.currency0), _loadTokenDecimals(key.currency1));
+        _setTokenScales(loadedToken0Decimals, loadedToken1Decimals);
+        return selector;
+    }
 
     function _getUnspecifiedAmount(IPoolManager.SwapParams calldata swapParams)
         internal
@@ -131,12 +195,12 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
 
         if (exactInput) {
             unspecifiedAmount = swapParams.zeroForOne
-                ? _executeExactInput0For1(specifiedAmount)
-                : _executeExactInput1For0(specifiedAmount);
+                ? _denormalizeAmount1(_executeExactInput0For1(_normalizeAmount0(specifiedAmount)))
+                : _denormalizeAmount0(_executeExactInput1For0(_normalizeAmount1(specifiedAmount)));
         } else {
             unspecifiedAmount = swapParams.zeroForOne
-                ? _executeExactOutput0For1(specifiedAmount)
-                : _executeExactOutput1For0(specifiedAmount);
+                ? _denormalizeAmount0Up(_executeExactOutput0For1(_normalizeAmount1(specifiedAmount)))
+                : _denormalizeAmount1Up(_executeExactOutput1For0(_normalizeAmount0(specifiedAmount)));
         }
     }
 
@@ -149,7 +213,12 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         returns (bytes memory, uint256)
     {
         AddLiquidityPlan memory plan = _planAddLiquidity(sqrtPriceX96, params);
-        return (abi.encode(int128(uint128(plan.amount0)), int128(uint128(plan.amount1))), plan.shares);
+        return (
+            abi.encode(
+                int128(uint128(_denormalizeAmount0(plan.amount0))), int128(uint128(_denormalizeAmount1(plan.amount1)))
+            ),
+            plan.shares
+        );
     }
 
     function _getRemoveLiquidity(RemoveLiquidityParams memory params)
@@ -158,7 +227,13 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         returns (bytes memory, uint256)
     {
         RemoveLiquidityPlan memory plan = _planRemoveLiquidity(params.liquidity);
-        return (abi.encode(-int128(uint128(plan.amount0)), -int128(uint128(plan.amount1))), plan.shares);
+        return (
+            abi.encode(
+                -int128(uint128(_denormalizeAmount0(plan.amount0))),
+                -int128(uint128(_denormalizeAmount1(plan.amount1)))
+            ),
+            plan.shares
+        );
     }
 
     function _getAmountIn(AddLiquidityParams memory params)
@@ -169,7 +244,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     {
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolKey.toId());
         AddLiquidityPlan memory plan = _planAddLiquidity(sqrtPriceX96, params);
-        return (plan.amount0, plan.amount1, plan.shares);
+        return (_denormalizeAmount0(plan.amount0), _denormalizeAmount1(plan.amount1), plan.shares);
     }
 
     function _getAmountOut(RemoveLiquidityParams memory params)
@@ -179,7 +254,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         returns (uint256 amount0, uint256 amount1, uint256 shares)
     {
         RemoveLiquidityPlan memory plan = _planRemoveLiquidity(params.liquidity);
-        return (plan.amount0, plan.amount1, plan.shares);
+        return (_denormalizeAmount0(plan.amount0), _denormalizeAmount1(plan.amount1), plan.shares);
     }
 
     function _mint(
@@ -195,6 +270,8 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     {
         if (shares == 0) revert ZeroAmount();
 
+        PoolState memory stateBefore = poolState;
+        bool bootstrap = stateBefore.liquidity == 0;
         (uint160 sqrtPriceX96,,,) = poolManager.getSlot0(poolKey.toId());
         AddLiquidityPlan memory plan = _planAddLiquidity(sqrtPriceX96, params);
 
@@ -205,7 +282,20 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         balanceOf[params.to] += shares;
         totalSupply += shares;
 
-        emit LiquidityAdded(params.to, plan.amount0, plan.amount1, shares);
+        emit LiquidityAdded(params.to, _denormalizeAmount0(plan.amount0), _denormalizeAmount1(plan.amount1), shares);
+        emit LiquiditySettlementTrace(
+            params.to,
+            bootstrap,
+            _denormalizeAmount0(stateBefore.reserve0),
+            _denormalizeAmount1(stateBefore.reserve1),
+            _denormalizeAmount0(poolState.reserve0),
+            _denormalizeAmount1(poolState.reserve1),
+            _denormalizeAmount0(plan.amount0),
+            _denormalizeAmount1(plan.amount1),
+            plan.amount0,
+            plan.amount1,
+            shares
+        );
     }
 
     function _burn(
@@ -231,7 +321,9 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         poolState.reserve1 -= plan.amount1;
         poolState.liquidity -= plan.deltaL;
 
-        emit LiquidityRemoved(msg.sender, plan.amount0, plan.amount1, shares);
+        emit LiquidityRemoved(
+            msg.sender, _denormalizeAmount0(plan.amount0), _denormalizeAmount1(plan.amount1), shares
+        );
     }
 
     function updateLogNormalParams(
@@ -243,7 +335,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         onlyOwner
         whenNotPaused
     {
-        if (newMean == 0 || newMean >= 100 * WAD) revert InvalidMean();
+        if (newMean == 0 || newMean >= MAX_MEAN_WAD) revert InvalidMean();
         if (newWidth == 0 || newWidth >= 2 * WAD) revert InvalidWidth();
         if (newBaseHookFeeWad >= WAD / 10) revert FeeTooHigh();
 
@@ -279,6 +371,12 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     function setRealizedVolatilityWad(uint256 newRealizedVolatilityWad) external onlyOwner whenNotPaused {
         realizedVolatilityWad = newRealizedVolatilityWad;
         emit RealizedVolatilityUpdated(newRealizedVolatilityWad);
+    }
+
+    function updateInventoryResponseWad(uint256 newInventoryResponseWad) external onlyOwner whenNotPaused {
+        if (newInventoryResponseWad == 0 || newInventoryResponseWad > WAD) revert InvalidInventoryResponse();
+        inventoryResponseWad = newInventoryResponseWad;
+        emit InventoryResponseUpdated(newInventoryResponseWad);
     }
 
     function emergencyPause() external onlyOwner {
@@ -328,8 +426,10 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
             })
         );
 
-        if (plan.amount0 < amount0Min || plan.amount1 < amount1Min) revert MinAmountNotMet();
-        return (plan.amount0, plan.amount1, plan.shares);
+        amount0 = _denormalizeAmount0(plan.amount0);
+        amount1 = _denormalizeAmount1(plan.amount1);
+        if (amount0 < amount0Min || amount1 < amount1Min) revert MinAmountNotMet();
+        return (amount0, amount1, plan.shares);
     }
 
     function removeLiquidityWithSlippage(
@@ -347,8 +447,10 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         if (balanceOf[msg.sender] < shares) revert InsufficientLiquidity();
 
         RemoveLiquidityPlan memory plan = _planRemoveLiquidity(shares);
-        if (plan.amount0 < amount0Min || plan.amount1 < amount1Min) revert MinAmountNotMet();
-        return (plan.amount0, plan.amount1);
+        amount0 = _denormalizeAmount0(plan.amount0);
+        amount1 = _denormalizeAmount1(plan.amount1);
+        if (amount0 < amount0Min || amount1 < amount1Min) revert MinAmountNotMet();
+        return (amount0, amount1);
     }
 
     // Convenience quote wrapper. Execution happens via PoolManager.swap.
@@ -366,7 +468,9 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         if (block.timestamp > deadline) revert DeadlineExpired();
         if (amountIn == 0) revert ZeroAmount();
 
-        amountOut = zeroForOne ? _quoteExactInput0For1(amountIn) : _quoteExactInput1For0(amountIn);
+        amountOut = zeroForOne
+            ? _denormalizeAmount1(_quoteExactInput0For1(_normalizeAmount0(amountIn)))
+            : _denormalizeAmount0(_quoteExactInput1For0(_normalizeAmount1(amountIn)));
         if (amountOut < amountOutMin) revert SlippageExceeded();
     }
 
@@ -380,7 +484,9 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         returns (uint256 amountOut)
     {
         if (amountIn == 0 || poolState.liquidity == 0) return 0;
-        return zeroForOne ? _quoteExactInput0For1(amountIn) : _quoteExactInput1For0(amountIn);
+        return zeroForOne
+            ? _denormalizeAmount1(_quoteExactInput0For1(_normalizeAmount0(amountIn)))
+            : _denormalizeAmount0(_quoteExactInput1For0(_normalizeAmount1(amountIn)));
     }
 
     function quoteExactInputForSolve(uint256 amountIn, bool zeroForOne) external view returns (uint256 amountOut) {
@@ -393,8 +499,10 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         view
         returns (uint256 hookFeeWad, uint256 hookFeeAmount)
     {
-        hookFeeWad = _computeHookFeeWad(poolState, amountIn, zeroForOne);
-        hookFeeAmount = FullMath.mulDiv(amountIn, hookFeeWad, WAD);
+        uint256 normalizedAmountIn = zeroForOne ? _normalizeAmount0(amountIn) : _normalizeAmount1(amountIn);
+        hookFeeWad = _computeHookFeeWad(poolState, normalizedAmountIn, zeroForOne);
+        uint256 normalizedFeeAmount = FullMath.mulDiv(normalizedAmountIn, hookFeeWad, WAD);
+        hookFeeAmount = zeroForOne ? _denormalizeAmount0(normalizedFeeAmount) : _denormalizeAmount1(normalizedFeeAmount);
     }
 
     function getPoolInfo()
@@ -404,12 +512,27 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     {
         PoolState memory state = poolState;
         priceWad = state.liquidity == 0 ? 0 : _price0(state.reserve0, state.liquidity);
-        return (state.reserve0, state.reserve1, state.liquidity, priceWad, super.paused());
+        return (_denormalizeAmount0(state.reserve0), _denormalizeAmount1(state.reserve1), state.liquidity, priceWad, super.paused());
     }
 
     function previewExactOutput(uint256 amountOut, bool zeroForOne) external view returns (uint256 amountIn) {
         if (amountOut == 0 || poolState.liquidity == 0) return 0;
-        return zeroForOne ? _solveExactInput0For1(amountOut) : _solveExactInput1For0(amountOut);
+        return zeroForOne
+            ? _denormalizeAmount0Up(_solveExactInput0For1(_normalizeAmount1(amountOut)))
+            : _denormalizeAmount1Up(_solveExactInput1For0(_normalizeAmount0(amountOut)));
+    }
+
+    function traceBootstrapPlan(
+        uint160 sqrtPriceX96,
+        uint256 amount0Desired,
+        uint256 amount1Desired
+    )
+        external
+        view
+        returns (BootstrapTrace memory trace)
+    {
+        uint256 priceWad = _sqrtPriceX96ToPriceWad(sqrtPriceX96);
+        return _bootstrapTrace(priceWad, _normalizeAmount0(amount0Desired), _normalizeAmount1(amount1Desired));
     }
 
     function currentInvariant() external view returns (int256) {
@@ -436,14 +559,16 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         PoolState memory state = poolState;
         if (state.liquidity == 0) {
             uint256 priceWad = _sqrtPriceX96ToPriceWad(sqrtPriceX96);
-            plan = _bootstrapPlan(priceWad, params.amount0Desired, params.amount1Desired);
+            plan = _bootstrapPlan(priceWad, _normalizeAmount0(params.amount0Desired), _normalizeAmount1(params.amount1Desired));
         } else {
-            uint256 deltaLFrom0 = params.amount0Desired == 0
+            uint256 normalizedAmount0Desired = _normalizeAmount0(params.amount0Desired);
+            uint256 normalizedAmount1Desired = _normalizeAmount1(params.amount1Desired);
+            uint256 deltaLFrom0 = normalizedAmount0Desired == 0
                 ? type(uint256).max
-                : FullMath.mulDiv(state.liquidity, params.amount0Desired, state.reserve0);
-            uint256 deltaLFrom1 = params.amount1Desired == 0
+                : FullMath.mulDiv(state.liquidity, normalizedAmount0Desired, state.reserve0);
+            uint256 deltaLFrom1 = normalizedAmount1Desired == 0
                 ? type(uint256).max
-                : FullMath.mulDiv(state.liquidity, params.amount1Desired, state.reserve1);
+                : FullMath.mulDiv(state.liquidity, normalizedAmount1Desired, state.reserve1);
 
             uint256 deltaL = Math.min(deltaLFrom0, deltaLFrom1);
             if (deltaL == 0 || deltaL == type(uint256).max) revert InsufficientLiquidity();
@@ -454,8 +579,13 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
             plan.shares = FullMath.mulDiv(totalSupply, deltaL, state.liquidity);
         }
 
-        if (plan.amount0 > params.amount0Desired || plan.amount1 > params.amount1Desired) revert MaxAmountExceeded();
-        if (plan.amount0 < params.amount0Min || plan.amount1 < params.amount1Min) revert MinAmountNotMet();
+        uint256 amount0Desired = _normalizeAmount0(params.amount0Desired);
+        uint256 amount1Desired = _normalizeAmount1(params.amount1Desired);
+        uint256 amount0Min = _normalizeAmount0(params.amount0Min);
+        uint256 amount1Min = _normalizeAmount1(params.amount1Min);
+
+        if (plan.amount0 > amount0Desired || plan.amount1 > amount1Desired) revert MaxAmountExceeded();
+        if (plan.amount0 < amount0Min || plan.amount1 < amount1Min) revert MinAmountNotMet();
     }
 
     function _bootstrapPlan(
@@ -467,36 +597,98 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         view
         returns (AddLiquidityPlan memory plan)
     {
+        BootstrapTrace memory trace = _bootstrapTrace(priceWad, amount0Desired, amount1Desired);
+        plan.amount0 = trace.amount0;
+        plan.amount1 = trace.amount1;
+        plan.deltaL = trace.deltaL;
+        plan.shares = trace.shares;
+    }
+
+    function _bootstrapTrace(
+        uint256 priceWad,
+        uint256 amount0Desired,
+        uint256 amount1Desired
+    )
+        internal
+        view
+        returns (BootstrapTrace memory trace)
+    {
         if (priceWad == 0) revert InvalidParameters();
 
         uint256 mu = logNormalParams.mean;
-        uint256 sigma = logNormalParams.width;
-        uint256 d1 = _d1(priceWad, mu, sigma);
-        uint256 d2 = _d2(priceWad, mu, sigma);
+        uint256 sigma = _effectiveWidth();
 
-        uint256 xRatio = WAD - _phiWad(int256(d1));
-        uint256 yRatio = _phiWad(int256(d2));
-        if (xRatio <= EPS || yRatio <= EPS) revert DomainExceeded();
+        trace.priceWad = priceWad;
+        trace.desiredPriceWad = amount0Desired == 0 ? 0 : FullMath.mulDiv(amount1Desired, WAD, amount0Desired);
+        trace.normalizedAmount0Desired = amount0Desired;
+        trace.normalizedAmount1Desired = amount1Desired;
 
-        uint256 requiredYForX = amount0Desired == 0 ? type(uint256).max : FullMath.mulDiv(mu, amount0Desired, xRatio);
-        requiredYForX = FullMath.mulDiv(requiredYForX, yRatio, WAD);
+        if (amount0Desired > 0 && amount1Desired > 0
+            && _withinBps(trace.desiredPriceWad, priceWad, STABLE_BOOTSTRAP_PRICE_TOLERANCE_BPS))
+        {
+            (trace.xRatio, trace.yRatio) = _bootstrapStableRatios(priceWad, mu, sigma);
+            if (trace.xRatio <= EPS || trace.yRatio <= EPS) revert DomainExceeded();
 
-        if (amount0Desired > 0 && requiredYForX <= amount1Desired) {
-            plan.amount0 = amount0Desired;
-            plan.deltaL = FullMath.mulDiv(amount0Desired, WAD, xRatio);
-            plan.amount1 = FullMath.mulDiv(_maxReserve1(plan.deltaL), yRatio, WAD);
+            uint256 deltaLFrom0 = FullMath.mulDiv(amount0Desired, WAD, trace.xRatio);
+            uint256 impliedAmount1 = FullMath.mulDiv(_maxReserve1(deltaLFrom0), trace.yRatio, WAD);
+            uint256 deltaLFrom1 = FullMath.mulDiv(amount1Desired, WAD, FullMath.mulDiv(mu, trace.yRatio, WAD));
+            uint256 impliedAmount0 = FullMath.mulDiv(deltaLFrom1, trace.xRatio, WAD);
+
+            trace.clip0Bps = _relativeDiffBps(amount0Desired, impliedAmount0);
+            trace.clip1Bps = _relativeDiffBps(amount1Desired, impliedAmount1);
+            if (trace.clip0Bps > MAX_BOOTSTRAP_CLIP_BPS || trace.clip1Bps > MAX_BOOTSTRAP_CLIP_BPS) {
+                revert BootstrapClipTooLarge();
+            }
+
+            trace.stableExact = true;
+            trace.amount0Limited = true;
+            trace.amount0 = amount0Desired;
+            trace.amount1 = amount1Desired;
+            trace.deltaL = deltaLFrom0;
+            trace.rawAmount0 = _denormalizeAmount0(trace.amount0);
+            trace.rawAmount1 = _denormalizeAmount1(trace.amount1);
+            trace.shares = trace.deltaL;
+            return trace;
         } else {
-            uint256 requiredXForY = amount1Desired == 0 ? 0 : FullMath.mulDiv(amount1Desired, WAD, yRatio);
-            requiredXForY = FullMath.mulDiv(requiredXForY, xRatio, mu);
-
-            if (amount1Desired == 0 || requiredXForY > amount0Desired) revert InvalidParameters();
-
-            plan.amount1 = amount1Desired;
-            plan.deltaL = FullMath.mulDiv(amount1Desired, WAD, FullMath.mulDiv(mu, yRatio, WAD));
-            plan.amount0 = FullMath.mulDiv(plan.deltaL, xRatio, WAD);
+            uint256 d1 = _d1(priceWad, mu, sigma);
+            uint256 d2 = _d2(priceWad, mu, sigma);
+            trace.xRatio = WAD - _phiWad(int256(d1));
+            trace.yRatio = _phiWad(int256(d2));
+            if (trace.xRatio <= EPS || trace.yRatio <= EPS) revert DomainExceeded();
         }
 
-        plan.shares = plan.deltaL;
+        trace.requiredYForX =
+            amount0Desired == 0 ? type(uint256).max : FullMath.mulDiv(mu, amount0Desired, trace.xRatio);
+        trace.requiredYForX = FullMath.mulDiv(trace.requiredYForX, trace.yRatio, WAD);
+
+        if (amount0Desired > 0 && trace.requiredYForX <= amount1Desired) {
+            trace.amount0Limited = true;
+            trace.amount0 = amount0Desired;
+            trace.deltaL = FullMath.mulDiv(amount0Desired, WAD, trace.xRatio);
+            trace.amount1 = FullMath.mulDiv(_maxReserve1(trace.deltaL), trace.yRatio, WAD);
+        } else {
+            trace.requiredXForY = amount1Desired == 0 ? 0 : FullMath.mulDiv(amount1Desired, WAD, trace.yRatio);
+            trace.requiredXForY = FullMath.mulDiv(trace.requiredXForY, trace.xRatio, mu);
+
+            if (amount1Desired == 0 || trace.requiredXForY > amount0Desired) revert InvalidParameters();
+
+            trace.amount0Limited = false;
+            trace.amount1 = amount1Desired;
+            trace.deltaL = FullMath.mulDiv(amount1Desired, WAD, FullMath.mulDiv(mu, trace.yRatio, WAD));
+            trace.amount0 = FullMath.mulDiv(trace.deltaL, trace.xRatio, WAD);
+        }
+
+        trace.rawAmount0 = _denormalizeAmount0(trace.amount0);
+        trace.rawAmount1 = _denormalizeAmount1(trace.amount1);
+        trace.clip0Bps = _clipBps(amount0Desired, trace.amount0);
+        trace.clip1Bps = _clipBps(amount1Desired, trace.amount1);
+        if (amount0Desired > 0 && amount1Desired > 0
+            && _withinBps(trace.desiredPriceWad, priceWad, STABLE_BOOTSTRAP_PRICE_TOLERANCE_BPS)
+            && (trace.clip0Bps > MAX_BOOTSTRAP_CLIP_BPS || trace.clip1Bps > MAX_BOOTSTRAP_CLIP_BPS))
+        {
+            revert BootstrapClipTooLarge();
+        }
+        trace.shares = trace.deltaL;
     }
 
     function _planRemoveLiquidity(uint256 shares) internal view returns (RemoveLiquidityPlan memory plan) {
@@ -529,7 +721,14 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         poolState.reserve1 = newReserve1;
         poolState.liquidity = newLiquidity;
 
-        emit SwapExecuted(msg.sender, true, amountIn, amountOut, hookFeeWad, feeAmount);
+        emit SwapExecuted(
+            msg.sender,
+            true,
+            _denormalizeAmount0(amountIn),
+            _denormalizeAmount1(amountOut),
+            hookFeeWad,
+            _denormalizeAmount0(feeAmount)
+        );
     }
 
     function _executeExactInput1For0(uint256 amountIn) internal returns (uint256 amountOut) {
@@ -552,7 +751,14 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         poolState.reserve1 = newReserve1;
         poolState.liquidity = newLiquidity;
 
-        emit SwapExecuted(msg.sender, false, amountIn, amountOut, hookFeeWad, feeAmount);
+        emit SwapExecuted(
+            msg.sender,
+            false,
+            _denormalizeAmount1(amountIn),
+            _denormalizeAmount0(amountOut),
+            hookFeeWad,
+            _denormalizeAmount1(feeAmount)
+        );
     }
 
     function _executeExactOutput0For1(uint256 amountOut) internal returns (uint256 amountIn) {
@@ -793,7 +999,7 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         uint256 xOverL = FullMath.mulDiv(reserve0_, WAD, liquidity_);
         uint256 yOverMuL = FullMath.mulDiv(reserve1_, WAD, _maxReserve1(liquidity_));
 
-        return _invPhiWad(xOverL) + _invPhiWad(yOverMuL) + int256(logNormalParams.width);
+        return _invPhiWad(xOverL) + _invPhiWad(yOverMuL) + int256(_effectiveWidth());
     }
 
     function _solveReserve1(uint256 reserve0_, uint256 liquidity_) internal view returns (uint256 reserve1_) {
@@ -855,9 +1061,52 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         return Gaussian.ppf(int256(u));
     }
 
-    function _sqrtPriceX96ToPriceWad(uint160 sqrtPriceX96) internal pure returns (uint256) {
+    function _sqrtPriceX96ToPriceWad(uint160 sqrtPriceX96) internal view returns (uint256) {
         uint256 priceQ96 = FullMath.mulDiv(uint256(sqrtPriceX96), uint256(sqrtPriceX96), FixedPoint96.Q96);
-        return FullMath.mulDiv(priceQ96, WAD, FixedPoint96.Q96);
+        uint256 rawPriceWad = FullMath.mulDiv(priceQ96, WAD, FixedPoint96.Q96);
+        return FullMath.mulDiv(rawPriceWad, token1Scale, token0Scale);
+    }
+
+    function _bootstrapStableRatios(uint256 priceWad, uint256 mu, uint256 sigma)
+        internal
+        pure
+        returns (uint256 xRatio, uint256 yRatio)
+    {
+        (int256 z1, int256 z2) = _bootstrapSignedZTerms(priceWad, mu, sigma);
+        xRatio = WAD - _phiWad(z1);
+        yRatio = _phiWad(z2);
+    }
+
+    function _bootstrapSignedZTerms(uint256 priceWad, uint256 mu, uint256 sigma)
+        internal
+        pure
+        returns (int256 z1, int256 z2)
+    {
+        int256 lnTerm = SignedWadMath.lnWad(_toInt256(FullMath.mulDiv(priceWad, WAD, mu)));
+        int256 sigmaSquaredOverTwo = _toInt256(FullMath.mulDiv(sigma, sigma, 2 * WAD));
+        int256 sigmaInt = _toInt256(sigma);
+        z1 = (lnTerm + sigmaSquaredOverTwo) * int256(WAD) / sigmaInt;
+        z2 = (lnTerm - sigmaSquaredOverTwo) * int256(WAD) / sigmaInt;
+    }
+
+    function _clipBps(uint256 desiredAmount, uint256 acceptedAmount) internal pure returns (uint256) {
+        if (desiredAmount == 0 || acceptedAmount >= desiredAmount) return 0;
+        return FullMath.mulDiv(desiredAmount - acceptedAmount, 10_000, desiredAmount);
+    }
+
+    function _relativeDiffBps(uint256 lhs, uint256 rhs) internal pure returns (uint256) {
+        if (lhs == rhs) return 0;
+        if (lhs == 0 || rhs == 0) return type(uint256).max;
+        uint256 diff = lhs > rhs ? lhs - rhs : rhs - lhs;
+        uint256 base = lhs > rhs ? lhs : rhs;
+        return FullMath.mulDiv(diff, 10_000, base);
+    }
+
+    function _withinBps(uint256 lhs, uint256 rhs, uint256 toleranceBps) internal pure returns (bool) {
+        if (lhs == rhs) return true;
+        if (lhs == 0 || rhs == 0) return false;
+
+        return _relativeDiffBps(lhs, rhs) <= toleranceBps;
     }
 
     function _maxReserve1(uint256 liquidity_) internal view returns (uint256) {
@@ -869,9 +1118,14 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
 
         uint256 u = WAD - FullMath.mulDiv(reserve0_, WAD, liquidity_);
         int256 z = _invPhiWad(u);
-        int256 sigmaTerm = _toInt256(FullMath.mulDiv(_abs(z), logNormalParams.width, WAD));
+        uint256 effectiveWidth = _effectiveWidth();
+        int256 sigmaTerm = _toInt256(FullMath.mulDiv(_abs(z), effectiveWidth, WAD));
         if (z < 0) sigmaTerm = -sigmaTerm;
-        exponent = sigmaTerm - _toInt256(FullMath.mulDiv(logNormalParams.width, logNormalParams.width, 2 * WAD));
+        exponent = sigmaTerm - _toInt256(FullMath.mulDiv(effectiveWidth, effectiveWidth, 2 * WAD));
+    }
+
+    function _effectiveWidth() internal view returns (uint256) {
+        return FullMath.mulDiv(logNormalParams.width, inventoryResponseWad, WAD);
     }
 
     function _expWadToUint(int256 exponent) internal pure returns (uint256 result) {
@@ -890,6 +1144,51 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     function _abs(int256 value) internal pure returns (uint256 result) {
         if (value >= 0) return uint256(value);
         result = uint256(-value);
+    }
+
+    function _loadTokenDecimals(Currency currency) internal view returns (uint8 decimals_) {
+        address token = Currency.unwrap(currency);
+        (bool ok, bytes memory data) = token.staticcall(abi.encodeCall(IERC20Decimals.decimals, ()));
+        if (!ok || data.length < 32) revert TokenDecimalsQueryFailed();
+
+        decimals_ = abi.decode(data, (uint8));
+        if (decimals_ > 18) revert UnsupportedTokenDecimals();
+    }
+
+    function _setTokenScales(uint8 token0Decimals_, uint8 token1Decimals_) internal {
+        if (token0Decimals_ > 18 || token1Decimals_ > 18) revert UnsupportedTokenDecimals();
+        token0Decimals = token0Decimals_;
+        token1Decimals = token1Decimals_;
+        token0Scale = 10 ** (18 - token0Decimals_);
+        token1Scale = 10 ** (18 - token1Decimals_);
+    }
+
+    function _normalizeAmount0(uint256 amount) internal view returns (uint256) {
+        return amount * token0Scale;
+    }
+
+    function _normalizeAmount1(uint256 amount) internal view returns (uint256) {
+        return amount * token1Scale;
+    }
+
+    function _denormalizeAmount0(uint256 amount) internal view returns (uint256) {
+        return amount / token0Scale;
+    }
+
+    function _denormalizeAmount1(uint256 amount) internal view returns (uint256) {
+        return amount / token1Scale;
+    }
+
+    function _denormalizeAmount0Up(uint256 amount) internal view returns (uint256) {
+        return _ceilDiv(amount, token0Scale);
+    }
+
+    function _denormalizeAmount1Up(uint256 amount) internal view returns (uint256) {
+        return _ceilDiv(amount, token1Scale);
+    }
+
+    function _ceilDiv(uint256 numerator, uint256 denominator) internal pure returns (uint256) {
+        return numerator == 0 ? 0 : ((numerator - 1) / denominator) + 1;
     }
 
     function _requireReserve0Interior(uint256 reserve0_, uint256 liquidity_) internal pure {

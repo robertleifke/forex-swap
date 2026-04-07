@@ -15,6 +15,10 @@ contract ForexSwapHarness is ForexSwap {
 
     constructor(IPoolManager manager) ForexSwap(manager) { }
 
+    function configureTokenDecimalsForTest(uint8 token0Decimals_, uint8 token1Decimals_) external {
+        _setTokenScales(token0Decimals_, token1Decimals_);
+    }
+
     function seedState(
         uint256 reserve0,
         uint256 reserve1,
@@ -95,7 +99,7 @@ contract ForexSwapHarness is ForexSwap {
 
     function bootstrapRatiosForPrice(uint256 priceWad) external view returns (uint256 xRatio, uint256 yRatio) {
         uint256 mu = logNormalParams.mean;
-        uint256 sigma = logNormalParams.width;
+        uint256 sigma = FullMath.mulDiv(logNormalParams.width, inventoryResponseWad, 1e18);
         uint256 d1 = _d1(priceWad, mu, sigma);
         uint256 d2 = _d2(priceWad, mu, sigma);
         xRatio = 1e18 - _phiWad(_toInt256(d1));
@@ -104,19 +108,10 @@ contract ForexSwapHarness is ForexSwap {
 
     function priceWadForXRatio(uint256 xRatio) external view returns (uint256 priceWad) {
         int256 d1 = _invPhiWad(1e18 - xRatio);
-        uint256 sigma = logNormalParams.width;
+        uint256 sigma = FullMath.mulDiv(logNormalParams.width, inventoryResponseWad, 1e18);
         int256 sigmaTerm = _toInt256(FullMath.mulDiv(_abs(d1), sigma, 1e18));
         if (d1 < 0) sigmaTerm = -sigmaTerm;
         int256 exponent = sigmaTerm - _toInt256(FullMath.mulDiv(sigma, sigma, 2e18));
-        priceWad = FullMath.mulDiv(logNormalParams.mean, _expWadToUint(exponent), 1e18);
-    }
-
-    function priceWadForYRatio(uint256 yRatio) external view returns (uint256 priceWad) {
-        int256 d2 = _invPhiWad(yRatio);
-        uint256 sigma = logNormalParams.width;
-        int256 sigmaTerm = _toInt256(FullMath.mulDiv(_abs(d2), sigma, 1e18));
-        if (d2 < 0) sigmaTerm = -sigmaTerm;
-        int256 exponent = sigmaTerm + _toInt256(FullMath.mulDiv(sigma, sigma, 2e18));
         priceWad = FullMath.mulDiv(logNormalParams.mean, _expWadToUint(exponent), 1e18);
     }
 
@@ -233,11 +228,6 @@ contract ForexSwapHarness is ForexSwap {
 
     function phiInvClosure(uint256 u) external pure returns (int256) {
         return int256(_phiWad(_invPhiWad(u))) - int256(u);
-    }
-
-    function currentYOverMuL() external view returns (uint256) {
-        if (poolState.liquidity == 0) return 0;
-        return (poolState.reserve1 * 1e18) / _maxReserve1(poolState.liquidity);
     }
 
     function residualForState(uint256 reserve0_, uint256 reserve1_, uint256 liquidity_) external view returns (int256) {
@@ -398,6 +388,44 @@ contract ForexSwapCorrectTest is Test {
         assertEq(hookFeeAmount, (1e18 * hookFeeWad) / 1e18);
     }
 
+    function test_updateInventoryResponseWad() external {
+        forexSwap.updateInventoryResponseWad(5e17);
+        assertEq(forexSwap.inventoryResponseWad(), 5e17);
+    }
+
+    function test_mixedDecimalsSixAndEighteenPreserveRawFacingQuotes() external {
+        _seedBalancedPool();
+
+        (uint256 reserve0Normalized, uint256 reserve1Normalized, uint256 liquidityNormalized) = forexSwap.poolState();
+        uint256 priceNormalized = forexSwap.currentPrice();
+
+        uint256 zeroForOneInNormalized = 5e16;
+        uint256 oneForZeroInNormalized = 2e17;
+        uint256 zeroForOneOutNormalized = forexSwap.calculateAmountOut(zeroForOneInNormalized, true);
+        uint256 oneForZeroOutNormalized = forexSwap.calculateAmountOut(oneForZeroInNormalized, false);
+        uint256 zeroForOnePreviewNormalized = forexSwap.previewExactOutput(1e17, true);
+        uint256 oneForZeroPreviewNormalized = forexSwap.previewExactOutput(5e16, false);
+
+        forexSwap.configureTokenDecimalsForTest(6, 18);
+
+        (uint256 reserve0Raw, uint256 reserve1Raw,,,) = forexSwap.getPoolInfo();
+        assertEq(reserve0Raw, reserve0Normalized / 1e12);
+        assertEq(reserve1Raw, reserve1Normalized);
+        assertEq(forexSwap.currentPrice(), priceNormalized);
+        (,, uint256 liquidityAfterScaling) = forexSwap.poolState();
+        assertEq(liquidityAfterScaling, liquidityNormalized);
+
+        uint256 zeroForOneOutRaw = forexSwap.calculateAmountOut(zeroForOneInNormalized / 1e12, true);
+        uint256 oneForZeroOutRaw = forexSwap.calculateAmountOut(oneForZeroInNormalized, false);
+        assertEq(zeroForOneOutRaw, zeroForOneOutNormalized);
+        assertEq(oneForZeroOutRaw, oneForZeroOutNormalized / 1e12);
+
+        uint256 zeroForOnePreviewRaw = forexSwap.previewExactOutput(1e17, true);
+        uint256 oneForZeroPreviewRaw = forexSwap.previewExactOutput(5e16 / 1e12, false);
+        assertEq(zeroForOnePreviewRaw, ((zeroForOnePreviewNormalized - 1) / 1e12) + 1);
+        assertEq(oneForZeroPreviewRaw, oneForZeroPreviewNormalized);
+    }
+
     function test_bootstrapPlanUsesPoolPriceAndReturnsLPShares() external view {
         (uint256 amount0, uint256 amount1, uint256 shares, uint256 deltaL) =
             forexSwap.planBootstrap(79_228_162_514_264_337_593_543_950_336, 4e17, 5e17);
@@ -457,6 +485,33 @@ contract ForexSwapCorrectTest is Test {
 
         assertEq(amount0, amount0Desired);
         assertLe(deltaL, FullMath.mulDiv(amount0Desired, 1e18, eps));
+    }
+
+    function test_stableBootstrapPreservesRequestedAmountsForSixDecimalPair() external {
+        forexSwap.configureTokenDecimalsForTest(6, 6);
+
+        uint256 anchorCngnPerUsdcWad = 1_380_349_891_090_393_592_967;
+        (, uint256 width, uint256 baseHookFeeWad) = forexSwap.logNormalParams();
+        forexSwap.updateLogNormalParams(anchorCngnPerUsdcWad, width, baseHookFeeWad);
+
+        uint256 amount0Desired = 579_560 * 1e12;
+        uint256 amount1Desired = 800_000_000 * 1e12;
+        (uint256 amount0, uint256 amount1,,) =
+            forexSwap.planBootstrapFromPrice(anchorCngnPerUsdcWad, amount0Desired, amount1Desired);
+
+        assertEq(amount0, amount0Desired);
+        assertEq(amount1, amount1Desired);
+    }
+
+    function test_stableBootstrapRevertsWhenNearAnchorRequestWouldClipTooMuch() external {
+        forexSwap.configureTokenDecimalsForTest(6, 6);
+
+        uint256 anchorCngnPerUsdcWad = 1_380_349_891_090_393_592_967;
+        (, uint256 width, uint256 baseHookFeeWad) = forexSwap.logNormalParams();
+        forexSwap.updateLogNormalParams(anchorCngnPerUsdcWad, width, baseHookFeeWad);
+
+        vm.expectRevert(ForexSwap.BootstrapClipTooLarge.selector);
+        forexSwap.planBootstrapFromPrice(anchorCngnPerUsdcWad, 579_560 * 1e12, 808_000_000 * 1e12);
     }
 
     function test_quoteAndExecuteExactInputZeroForOneMoveState() external {
@@ -702,6 +757,7 @@ contract ForexSwapCorrectTest is Test {
     }
 
     function test_previewExactOutputMatchesBoundedOracle_zeroForOne() external {
+        forexSwap.updateInventoryResponseWad(1e18);
         uint256[4] memory liquidityCases = [uint256(4_000_000_000), 7_500_000_000, 12_000_000_000, 20_000_000_000];
         uint256[4] memory reserveBps = [uint256(3000), 4000, 6000, 7400];
         uint256[4] memory targetBps = [uint256(1000), 2500, 5000, 7500];
@@ -713,6 +769,7 @@ contract ForexSwapCorrectTest is Test {
     }
 
     function test_previewExactOutputMatchesBoundedOracle_oneForZero() external {
+        forexSwap.updateInventoryResponseWad(1e18);
         uint256[4] memory liquidityCases = [uint256(4_500_000_000), 8_000_000_000, 13_000_000_000, 18_000_000_000];
         uint256[4] memory reserveBps = [uint256(3000), 4500, 5500, 7000];
         uint256[4] memory targetBps = [uint256(1250), 3000, 5500, 7000];
@@ -1593,12 +1650,12 @@ contract ForexSwapCorrectTest is Test {
     )
         internal
     {
-        uint256 maxIn = 128;
-
         forexSwap.seedConsistentState(reserve0, liquidityL, 1e18, alice);
 
-        (bool maxOk,, uint256 maxQuote) = _safeSolveQuoteExactInput(maxIn, zeroForOne);
+        (uint256 maxIn, uint256 maxQuote) = _findSolveUpperBound(zeroForOne);
+        (bool maxOk,, uint256 observedQuote) = _safeSolveQuoteExactInput(maxIn, zeroForOne);
         assertTrue(maxOk);
+        assertEq(observedQuote, maxQuote);
         assertGt(maxQuote, 1);
 
         uint256 targetOut = FullMath.mulDiv(maxQuote, targetBps, 10_000);
@@ -1628,14 +1685,17 @@ contract ForexSwapCorrectTest is Test {
     {
         monotone = true;
         uint256 previousQuote = 0;
+        bool seenValid;
 
         for (uint256 amountIn = 1; amountIn <= maxIn; ++amountIn) {
             (bool ok, bool domainExceeded, uint256 quote) = _safeSolveQuoteExactInput(amountIn, zeroForOne);
             if (!ok) {
                 assertTrue(domainExceeded);
+                if (!seenValid) continue;
                 break;
             }
 
+            seenValid = true;
             if (quote < previousQuote) return (false, false, 0);
             if (!found && quote >= targetOut) {
                 found = true;
@@ -1643,6 +1703,18 @@ contract ForexSwapCorrectTest is Test {
             }
             previousQuote = quote;
         }
+    }
+
+    function _findSolveUpperBound(bool zeroForOne) internal view returns (uint256 amountIn, uint256 quoteOut) {
+        amountIn = 1;
+
+        for (uint256 i = 0; i < 24; ++i) {
+            (bool ok,, uint256 quote) = _safeSolveQuoteExactInput(amountIn, zeroForOne);
+            if (ok && quote > 1) return (amountIn, quote);
+            amountIn *= 2;
+        }
+
+        revert("solve upper bound not found");
     }
 
     function _logPreviewBoundaryCase(
