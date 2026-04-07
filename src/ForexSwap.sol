@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import { BaseCustomCurve } from "uniswap-hooks/src/base/BaseCustomCurve.sol";
 import { IPoolManager } from "v4-core/src/interfaces/IPoolManager.sol";
-import { BalanceDelta } from "v4-core/src/types/BalanceDelta.sol";
+import { BalanceDelta, toBalanceDelta, BalanceDeltaLibrary } from "v4-core/src/types/BalanceDelta.sol";
 import { Math } from "v4-core/lib/openzeppelin-contracts/contracts/utils/math/Math.sol";
 import { Ownable } from "v4-core/lib/openzeppelin-contracts/contracts/access/Ownable.sol";
 import { Pausable } from "v4-core/lib/openzeppelin-contracts/contracts/utils/Pausable.sol";
@@ -12,8 +12,12 @@ import { FullMath } from "v4-core/src/libraries/FullMath.sol";
 import { FixedPoint96 } from "v4-core/src/libraries/FixedPoint96.sol";
 import { StateLibrary } from "v4-core/src/libraries/StateLibrary.sol";
 import { PoolIdLibrary } from "v4-core/src/types/PoolId.sol";
+import { PoolId } from "v4-core/src/types/PoolId.sol";
 import { PoolKey } from "v4-core/src/types/PoolKey.sol";
 import { Currency } from "v4-core/src/types/Currency.sol";
+import { Hooks } from "v4-core/src/libraries/Hooks.sol";
+import { SafeCast } from "v4-core/src/libraries/SafeCast.sol";
+import { CurrencySettler } from "uniswap-hooks/src/utils/CurrencySettler.sol";
 import { Gaussian } from "./libraries/Gaussian.sol";
 import { SignedWadMath } from "./libraries/SignedWadMath.sol";
 
@@ -27,8 +31,10 @@ interface IERC20Decimals {
  * @dev The hook owns the market maker state. Uniswap v4 is used for settlement and flash accounting.
  */
 contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
+    using CurrencySettler for Currency;
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
+    using SafeCast for uint256;
 
     error InvalidMean();
     error InvalidWidth();
@@ -49,6 +55,8 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     error TokenDecimalsQueryFailed();
     error InvalidInventoryResponse();
     error BootstrapClipTooLarge();
+    error InvalidFeeRecipient();
+    error InsufficientAdminFees();
 
     event MarketParametersUpdated(uint256 newMean, uint256 newWidth, uint256 newBaseHookFeeWad);
     event HookFeeModelUpdated(
@@ -79,6 +87,8 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         uint256 hookFeeWad,
         uint256 hookFeeAmount
     );
+    event AdminFeeUpdated(PoolId indexed poolId, uint24 oldFeeBps, uint24 newFeeBps);
+    event AdminFeesWithdrawn(PoolId indexed poolId, Currency indexed currency, address indexed to, uint256 amount);
     event EmergencyPaused(address indexed admin);
     event EmergencyUnpaused(address indexed admin);
 
@@ -136,7 +146,30 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         uint256 deltaL;
     }
 
+    enum UnlockAction {
+        ModifyLiquidity,
+        WithdrawAdminFees
+    }
+
+    struct UnlockCallbackData {
+        UnlockAction action;
+        bytes data;
+    }
+
+    struct ModifyLiquidityCallbackData {
+        address sender;
+        int128 amount0;
+        int128 amount1;
+    }
+
+    struct WithdrawAdminFeesCallbackData {
+        Currency currency;
+        address to;
+        uint256 amount;
+    }
+
     uint256 private constant WAD = 1e18;
+    uint24 public constant MAX_ADMIN_FEE_BPS = 100;
     uint256 private constant SEARCH_STEPS = 64;
     uint256 private constant MAX_MEAN_WAD = 10_000e18;
     uint256 private constant STABLE_BOOTSTRAP_PRICE_TOLERANCE_BPS = 500;
@@ -164,6 +197,19 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
     uint8 public token1Decimals = 18;
     uint256 private token0Scale = 1;
     uint256 private token1Scale = 1;
+    mapping(PoolId poolId => uint24 feeBps) public adminFeeBps;
+    // IMPORTANT:
+    // accruedAdminFees[poolId][currency] is the sole source of truth for withdrawable
+    // operator/admin fees.
+    //
+    // The hook may also hold ERC-6909 claims for normal pool inventory, so raw claim
+    // balances are NOT a reliable proxy for withdrawable fees. Withdrawal checks and
+    // accounting must be performed against accruedAdminFees only.
+    mapping(PoolId poolId => mapping(Currency currency => uint256 amount)) public accruedAdminFees;
+    PoolId private pendingAdminFeePoolId;
+    Currency private pendingAdminFeeCurrency;
+    uint256 private pendingAdminFeeAmount;
+    bool private pendingAdminFeeSet;
 
     constructor(IPoolManager _poolManager) BaseCustomCurve(_poolManager) Ownable(msg.sender) { }
 
@@ -202,6 +248,12 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
                 ? _denormalizeAmount0Up(_executeExactOutput0For1(_normalizeAmount1(specifiedAmount)))
                 : _denormalizeAmount1Up(_executeExactOutput1For0(_normalizeAmount0(specifiedAmount)));
         }
+
+        pendingAdminFeePoolId = poolKey.toId();
+        pendingAdminFeeCurrency =
+            (swapParams.amountSpecified < 0 == swapParams.zeroForOne) ? poolKey.currency1 : poolKey.currency0;
+        pendingAdminFeeAmount = unspecifiedAmount;
+        pendingAdminFeeSet = true;
     }
 
     function _getAddLiquidity(
@@ -324,6 +376,42 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         emit LiquidityRemoved(
             msg.sender, _denormalizeAmount0(plan.amount0), _denormalizeAmount1(plan.amount1), shares
         );
+    }
+
+    function setAdminFee(PoolId poolId, uint24 newFeeBps) external onlyOwner {
+        if (newFeeBps > MAX_ADMIN_FEE_BPS) revert FeeTooHigh();
+
+        uint24 oldFeeBps = adminFeeBps[poolId];
+        adminFeeBps[poolId] = newFeeBps;
+
+        emit AdminFeeUpdated(poolId, oldFeeBps, newFeeBps);
+    }
+
+    function withdrawAdminFees(PoolId poolId, Currency currency, address to, uint256 amount)
+        external
+        onlyOwner
+        nonReentrant
+    {
+        if (to == address(0)) revert InvalidFeeRecipient();
+        if (amount == 0) revert ZeroAmount();
+
+        uint256 accrued = accruedAdminFees[poolId][currency];
+        if (amount > accrued) revert InsufficientAdminFees();
+
+        // Decrement accruedAdminFees before external token movement to preserve correct
+        // accounting and prevent over-withdrawal on reentry or callback failure paths.
+        accruedAdminFees[poolId][currency] = accrued - amount;
+
+        poolManager.unlock(
+            abi.encode(
+                UnlockCallbackData({
+                    action: UnlockAction.WithdrawAdminFees,
+                    data: abi.encode(WithdrawAdminFeesCallbackData({ currency: currency, to: to, amount: amount }))
+                })
+            )
+        );
+
+        emit AdminFeesWithdrawn(poolId, currency, to, amount);
     }
 
     function updateLogNormalParams(
@@ -513,6 +601,43 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
         PoolState memory state = poolState;
         priceWad = state.liquidity == 0 ? 0 : _price0(state.reserve0, state.liquidity);
         return (_denormalizeAmount0(state.reserve0), _denormalizeAmount1(state.reserve1), state.liquidity, priceWad, super.paused());
+    }
+
+    function _afterSwap(address, PoolKey calldata key, IPoolManager.SwapParams calldata, BalanceDelta, bytes calldata)
+        internal
+        override
+        returns (bytes4, int128)
+    {
+        // IMPORTANT:
+        // This hook implements swap economics through the custom beforeSwap return-delta path.
+        // By the time PoolManager invokes afterSwap, its BalanceDelta is not the correct fee base
+        // for this hook, because the custom curve's realized output was already computed earlier.
+        //
+        // For that reason, admin-fee skimming in afterSwap MUST use the cached realized
+        // unspecified output captured during _getUnspecifiedAmount(...), not the
+        // PoolManager-provided BalanceDelta.
+        if (!pendingAdminFeeSet) return (this.afterSwap.selector, 0);
+
+        PoolId feePoolId = pendingAdminFeePoolId;
+        Currency feeCurrency = pendingAdminFeeCurrency;
+        uint256 realizedUnspecifiedAmount = pendingAdminFeeAmount;
+
+        pendingAdminFeePoolId = PoolId.wrap(bytes32(0));
+        pendingAdminFeeCurrency = Currency.wrap(address(0));
+        pendingAdminFeeAmount = 0;
+        pendingAdminFeeSet = false;
+
+        uint24 feeBps = adminFeeBps[key.toId()];
+        if (feeBps == 0) return (this.afterSwap.selector, 0);
+        if (PoolId.unwrap(feePoolId) != PoolId.unwrap(key.toId())) return (this.afterSwap.selector, 0);
+
+        uint256 adminFeeAmount = FullMath.mulDiv(realizedUnspecifiedAmount, feeBps, 10_000);
+        if (adminFeeAmount == 0) return (this.afterSwap.selector, 0);
+
+        accruedAdminFees[feePoolId][feeCurrency] += adminFeeAmount;
+        feeCurrency.take(poolManager, address(this), adminFeeAmount, true);
+
+        return (this.afterSwap.selector, adminFeeAmount.toInt128());
     }
 
     function previewExactOutput(uint256 amountOut, bool zeroForOne) external view returns (uint256 amountIn) {
@@ -1189,6 +1314,98 @@ contract ForexSwap is BaseCustomCurve, Ownable, Pausable, ReentrancyGuard {
 
     function _ceilDiv(uint256 numerator, uint256 denominator) internal pure returns (uint256) {
         return numerator == 0 ? 0 : ((numerator - 1) / denominator) + 1;
+    }
+
+    function _modifyLiquidity(bytes memory params)
+        internal
+        virtual
+        override
+        returns (BalanceDelta callerDelta, BalanceDelta feesAccrued)
+    {
+        (int128 amount0, int128 amount1) = abi.decode(params, (int128, int128));
+        (callerDelta, feesAccrued) = abi.decode(
+            poolManager.unlock(
+                abi.encode(
+                    UnlockCallbackData({
+                        action: UnlockAction.ModifyLiquidity,
+                        data: abi.encode(
+                            ModifyLiquidityCallbackData({ sender: msg.sender, amount0: amount0, amount1: amount1 })
+                        )
+                    })
+                )
+            ),
+            (BalanceDelta, BalanceDelta)
+        );
+    }
+
+    function unlockCallback(bytes calldata rawData)
+        external
+        virtual
+        override
+        onlyPoolManager
+        returns (bytes memory returnData)
+    {
+        UnlockCallbackData memory callbackData = abi.decode(rawData, (UnlockCallbackData));
+
+        if (callbackData.action == UnlockAction.WithdrawAdminFees) {
+            WithdrawAdminFeesCallbackData memory withdrawalData =
+                abi.decode(callbackData.data, (WithdrawAdminFeesCallbackData));
+
+            withdrawalData.currency.settle(poolManager, address(this), withdrawalData.amount, true);
+            withdrawalData.currency.take(poolManager, withdrawalData.to, withdrawalData.amount, false);
+
+            return abi.encode(0);
+        }
+
+        ModifyLiquidityCallbackData memory data = abi.decode(callbackData.data, (ModifyLiquidityCallbackData));
+        int128 amount0 = 0;
+        int128 amount1 = 0;
+        PoolKey memory key = poolKey;
+
+        if (data.amount0 < 0) {
+            key.currency0.settle(poolManager, address(this), uint256(int256(-data.amount0)), true);
+            key.currency0.take(poolManager, data.sender, uint256(int256(-data.amount0)), false);
+            amount0 = -data.amount0;
+        }
+
+        if (data.amount1 < 0) {
+            key.currency1.settle(poolManager, address(this), uint256(int256(-data.amount1)), true);
+            key.currency1.take(poolManager, data.sender, uint256(int256(-data.amount1)), false);
+            amount1 = -data.amount1;
+        }
+
+        if (data.amount0 > 0) {
+            key.currency0.settle(poolManager, data.sender, uint256(int256(data.amount0)), false);
+            key.currency0.take(poolManager, address(this), uint256(int256(data.amount0)), true);
+            amount0 = -data.amount0;
+        }
+
+        if (data.amount1 > 0) {
+            key.currency1.settle(poolManager, data.sender, uint256(int256(data.amount1)), false);
+            key.currency1.take(poolManager, address(this), uint256(int256(data.amount1)), true);
+            amount1 = -data.amount1;
+        }
+
+        return abi.encode(toBalanceDelta(amount0, amount1), BalanceDeltaLibrary.ZERO_DELTA);
+    }
+
+    function getHookPermissions() public pure virtual override returns (Hooks.Permissions memory permissions) {
+        return Hooks.Permissions({
+            beforeInitialize: true,
+            afterInitialize: false,
+            beforeAddLiquidity: true,
+            beforeRemoveLiquidity: true,
+            afterAddLiquidity: false,
+            afterRemoveLiquidity: false,
+            beforeSwap: true,
+            afterSwap: true,
+            beforeDonate: false,
+            afterDonate: false,
+            beforeSwapReturnDelta: true,
+            afterSwapReturnDelta: true,
+            afterAddLiquidityReturnDelta: false,
+            afterRemoveLiquidityReturnDelta: false
+        });
     }
 
     function _requireReserve0Interior(uint256 reserve0_, uint256 liquidity_) internal pure {
