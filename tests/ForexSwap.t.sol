@@ -8,10 +8,52 @@ import { PoolManager } from "@uniswap/v4-core/src/PoolManager.sol";
 import { IPoolManager } from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
 import { Hooks } from "@uniswap/v4-core/src/libraries/Hooks.sol";
 import { FullMath } from "@uniswap/v4-core/src/libraries/FullMath.sol";
+import { Gaussian } from "../src/libraries/Gaussian.sol";
 
 contract ForexSwapHarness is ForexSwap {
     uint160 internal constant SQRT_PRICE_1_1 = 79_228_162_514_264_337_593_543_950_336;
     uint256 internal constant STRICT_EPS = 1e9;
+    uint256 internal constant WAD = 1e18;
+
+    struct SwapDebugTrace {
+        bool zeroForOne;
+        uint256 amountIn;
+        uint256 quoteAmountOut;
+        uint256 reserve0Before;
+        uint256 reserve1Before;
+        uint256 liquidityBefore;
+        int256 invariantBefore;
+        uint256 xOverLBefore;
+        uint256 yOverMuLBefore;
+        uint256 hookFeeWad;
+        uint256 feeAmount;
+        uint256 effectiveIn;
+        uint256 postFeeSpecifiedReserve;
+        uint256 solvedLiquidity;
+        uint256 reserve0After;
+        uint256 reserve1After;
+        uint256 amountOut;
+        int256 invariantAfter;
+        uint256 xOverLAfter;
+        uint256 yOverMuLAfter;
+    }
+
+    struct ResidualDebugTrace {
+        uint256 reserve0;
+        uint256 reserve1;
+        uint256 liquidity;
+        uint256 maxReserve1;
+        uint256 xNumerator;
+        uint256 xDenominator;
+        uint256 yNumerator;
+        uint256 yDenominator;
+        uint256 xOverL;
+        uint256 yOverMuL;
+        int256 invPhiX;
+        int256 invPhiY;
+        uint256 effectiveWidth;
+        int256 residual;
+    }
 
     constructor(IPoolManager manager) ForexSwap(manager) { }
 
@@ -295,9 +337,93 @@ contract ForexSwapHarness is ForexSwap {
         d1_ = _d1(priceWad, mu, sigma);
         d2_ = _d2(priceWad, mu, sigma);
     }
+
+    function debugExactInput(uint256 amountIn, bool zeroForOne) external view returns (SwapDebugTrace memory trace) {
+        PoolState memory state = poolState;
+        trace.zeroForOne = zeroForOne;
+        trace.amountIn = amountIn;
+        trace.reserve0Before = state.reserve0;
+        trace.reserve1Before = state.reserve1;
+        trace.liquidityBefore = state.liquidity;
+        trace.invariantBefore = _residual(state.reserve0, state.reserve1, state.liquidity);
+
+        uint256 maxReserve1Before = _maxReserve1(state.liquidity);
+        trace.xOverLBefore = FullMath.mulDiv(state.reserve0, WAD, state.liquidity);
+        trace.yOverMuLBefore = FullMath.mulDiv(state.reserve1, WAD, maxReserve1Before);
+
+        trace.hookFeeWad = _computeHookFeeWad(state, amountIn, zeroForOne);
+        trace.feeAmount = FullMath.mulDiv(amountIn, trace.hookFeeWad, WAD);
+        trace.effectiveIn = amountIn - trace.feeAmount;
+
+        if (zeroForOne) {
+            trace.postFeeSpecifiedReserve = state.reserve0 + trace.feeAmount;
+            trace.solvedLiquidity = _solveLiquidityFromReserves(trace.postFeeSpecifiedReserve, state.reserve1);
+            trace.reserve0After = trace.postFeeSpecifiedReserve + trace.effectiveIn;
+            trace.reserve1After = _solveReserve1(trace.reserve0After, trace.solvedLiquidity);
+            trace.amountOut = state.reserve1 - trace.reserve1After;
+            trace.quoteAmountOut = _quoteExactInput0For1(amountIn);
+        } else {
+            trace.postFeeSpecifiedReserve = state.reserve1 + trace.feeAmount;
+            trace.solvedLiquidity = _solveLiquidityFromReserves(state.reserve0, trace.postFeeSpecifiedReserve);
+            trace.reserve1After = trace.postFeeSpecifiedReserve + trace.effectiveIn;
+            trace.reserve0After = _solveReserve0(trace.reserve1After, trace.solvedLiquidity);
+            trace.amountOut = state.reserve0 - trace.reserve0After;
+            trace.quoteAmountOut = _quoteExactInput1For0(amountIn);
+        }
+
+        uint256 maxReserve1After = _maxReserve1(trace.solvedLiquidity);
+        trace.invariantAfter = _residual(trace.reserve0After, trace.reserve1After, trace.solvedLiquidity);
+        trace.xOverLAfter = FullMath.mulDiv(trace.reserve0After, WAD, trace.solvedLiquidity);
+        trace.yOverMuLAfter = FullMath.mulDiv(trace.reserve1After, WAD, maxReserve1After);
+    }
+
+    function debugResidual(uint256 reserve0_, uint256 reserve1_, uint256 liquidity_)
+        external
+        view
+        returns (ResidualDebugTrace memory trace)
+    {
+        uint256 maxReserve1_ = _maxReserve1(liquidity_);
+        uint256 xOverL_ = FullMath.mulDiv(reserve0_, WAD, liquidity_);
+        uint256 yOverMuL_ = FullMath.mulDiv(reserve1_, WAD, maxReserve1_);
+        int256 invPhiX_ = _invPhiWad(xOverL_);
+        int256 invPhiY_ = _invPhiWad(yOverMuL_);
+        uint256 effectiveWidth_ = _effectiveWidth();
+
+        trace = ResidualDebugTrace({
+            reserve0: reserve0_,
+            reserve1: reserve1_,
+            liquidity: liquidity_,
+            maxReserve1: maxReserve1_,
+            xNumerator: reserve0_ * WAD,
+            xDenominator: liquidity_,
+            yNumerator: reserve1_ * WAD,
+            yDenominator: maxReserve1_,
+            xOverL: xOverL_,
+            yOverMuL: yOverMuL_,
+            invPhiX: invPhiX_,
+            invPhiY: invPhiY_,
+            effectiveWidth: effectiveWidth_,
+            residual: invPhiX_ + invPhiY_ + int256(effectiveWidth_)
+        });
+    }
+
+    function debugInvPhi(uint256 u) external pure returns (int256) {
+        return Gaussian.ppf(int256(u));
+    }
 }
 
 contract ForexSwapCorrectTest is Test {
+    struct RegressionStep {
+        uint256 step;
+        bool zeroForOne;
+        uint256 amountIn;
+        uint256 amountOut;
+        int256 invariantBefore;
+        int256 invariantAfter;
+        uint256 stepDrift;
+        uint256 cumulativeDrift;
+    }
+
     struct TraceState {
         uint256 reserve0;
         uint256 reserve1;
@@ -891,6 +1017,135 @@ contract ForexSwapCorrectTest is Test {
         _assertInvariantDriftWithinTolerance(
             invariantStart, forexSwap.currentInvariant(), MULTI_SWAP_DRIFT_ABS_TOLERANCE, MULTI_SWAP_DRIFT_REL_TOLERANCE
         );
+    }
+
+    function test_regression_repeatedSwapInvariantDriftCounterexample_reproduces() external {
+        RegressionStep[] memory steps = _runRepeatedSwapRegression(0, 949000000000000000, 5181, false);
+        assertGt(steps.length, 0);
+        assertLe(steps[steps.length - 1].cumulativeDrift, MULTI_SWAP_DRIFT_ABS_TOLERANCE);
+    }
+
+    function test_regression_repeatedSwapInvariantDriftCounterexample_logsMirroredDirections() external {
+        RegressionStep[] memory original = _runRepeatedSwapRegression(0, 949000000000000000, 5181, false);
+        RegressionStep[] memory mirrored = _runRepeatedSwapRegression(0, 949000000000000000, 5181, true);
+
+        assertGt(original.length, 0);
+        assertGt(mirrored.length, 0);
+    }
+
+    function test_regression_step5Breakpoint_comparesOriginalAndMirroredBranches() external {
+        ForexSwapHarness.SwapDebugTrace memory original = _runSingleStepTrace(
+            589752028654710713,
+            7302924914036034875,
+            7950518664194677420,
+            2333902037713231,
+            true,
+            "original-step5"
+        );
+
+        ForexSwapHarness.SwapDebugTrace memory mirrored = _runSingleStepTrace(
+            1452108153087453701,
+            6390912892028131150,
+            7950662719889184434,
+            119675782481879747,
+            false,
+            "mirrored-step5"
+        );
+
+        uint256 originalStepDrift = _absDiffInt(original.invariantBefore, original.invariantAfter);
+        uint256 mirroredStepDrift = _absDiffInt(mirrored.invariantBefore, mirrored.invariantAfter);
+
+        console2.log("step5DriftOriginal", originalStepDrift);
+        console2.log("step5DriftMirrored", mirroredStepDrift);
+
+        _logRootNeighborhood(
+            "original-step5-reserve1",
+            original.reserve0After,
+            original.reserve1After,
+            original.solvedLiquidity,
+            false
+        );
+        _logRootNeighborhood(
+            "mirrored-step5-reserve0",
+            mirrored.reserve0After,
+            mirrored.reserve1After,
+            mirrored.solvedLiquidity,
+            true
+        );
+        _logLiquidityNeighborhood(
+            "original-step5-liquidity",
+            original.reserve0Before,
+            original.postFeeSpecifiedReserve,
+            original.solvedLiquidity,
+            true
+        );
+        _logLiquidityNeighborhood(
+            "mirrored-step5-liquidity",
+            mirrored.postFeeSpecifiedReserve,
+            mirrored.reserve1Before,
+            mirrored.solvedLiquidity,
+            false
+        );
+
+        assertEq(original.quoteAmountOut, original.amountOut);
+        assertEq(mirrored.quoteAmountOut, mirrored.amountOut);
+        assertLe(originalStepDrift, INVARIANT_DRIFT_ABS_TOLERANCE);
+        assertLe(mirroredStepDrift, INVARIANT_DRIFT_ABS_TOLERANCE);
+    }
+
+    function test_regression_step5ResidualNeighborhood_logsQuantization() external view {
+        _logResidualNeighborhood(
+            "original-step5-post",
+            592085930692423944,
+            7300426882874174262,
+            7950526194903969864,
+            false
+        );
+        _logResidualNeighborhood(
+            "mirrored-step5-post",
+            1338086839264135567,
+            6510588674510010897,
+            7951023667346455306,
+            true
+        );
+    }
+
+    function test_regression_step5InvPhiNeighborhood_logsDirectPpfSlope() external view {
+        _logInvPhiNeighborhood("original-y", 918231913700694649);
+        _logInvPhiNeighborhood("mirrored-x", 168291140266559366);
+    }
+
+    function test_regression_gaussianPpf_isMonotoneOnStep5BreakpointNeighborhood() external view {
+        uint256 u = 918231913700694649;
+        int256 below = forexSwap.debugInvPhi(u - 1);
+        int256 exact = forexSwap.debugInvPhi(u);
+        int256 above = forexSwap.debugInvPhi(u + 1);
+
+        assertLe(below, exact);
+        assertLe(exact, above);
+    }
+
+    function test_regression_gaussianPpf_isMonotoneOnLocalSweepAroundStep5Breakpoint() external view {
+        uint256 center = 918231913700694649;
+        int256 previous = forexSwap.debugInvPhi(center - 32);
+
+        for (uint256 i = 31; i > 0; --i) {
+            uint256 u = center - i;
+            int256 current = forexSwap.debugInvPhi(u);
+            assertLe(previous, current);
+            previous = current;
+        }
+
+        int256 exact = forexSwap.debugInvPhi(center);
+        assertLe(previous, exact);
+        previous = exact;
+
+        for (uint256 i = 1; i <= 32; ++i) {
+            uint256 u = center + i;
+            int256 current = forexSwap.debugInvPhi(u);
+            assertLe(previous, current);
+            previous = current;
+        }
     }
 
     function testFuzz_previewAndExecuteInvariantDriftStayConsistent(
@@ -1610,6 +1865,250 @@ contract ForexSwapCorrectTest is Test {
         cumulativeDrift = _absDiffInt(invariantStart, actualInvariantAfter);
         previewGap = _absDiffInt(previewInvariantAfter, actualInvariantAfter);
         return (true, stepDrift, cumulativeDrift, previewGap);
+    }
+
+    function _runRepeatedSwapRegression(
+        uint256 reserve0Seed,
+        uint256 liquiditySeed,
+        uint256 randomness,
+        bool invertDirections
+    )
+        internal
+        returns (RegressionStep[] memory steps)
+    {
+        uint256 liquidityL = bound(liquiditySeed, 1e18, 8e18);
+        uint256 reserve0 = bound(reserve0Seed, liquidityL / 8, (liquidityL * 7) / 10);
+
+        forexSwap.seedConsistentState(reserve0, liquidityL, 1e18, alice);
+        assertTrue(_isInteriorState());
+
+        int256 invariantStart = forexSwap.currentInvariant();
+        uint256 stateRand = randomness;
+        uint256 totalSteps = 5 + (stateRand % 16);
+        steps = new RegressionStep[](totalSteps);
+
+        console2.log("--- repeated swap regression ---");
+        console2.log("reserve0Seed", reserve0Seed);
+        console2.log("liquiditySeed", liquiditySeed);
+        console2.log("randomness", randomness);
+        console2.log("invertDirections", invertDirections ? 1 : 0);
+        console2.log("boundedReserve0", reserve0);
+        console2.log("boundedLiquidity", liquidityL);
+        console2.logInt(invariantStart);
+
+        for (uint256 i = 0; i < totalSteps; ++i) {
+            stateRand = uint256(keccak256(abi.encode(stateRand, i)));
+            bool zeroForOne = (stateRand & 1) == 0;
+            if (invertDirections) zeroForOne = !zeroForOne;
+
+            (,, uint256 currentLiquidity,) = _state();
+            uint256 amountIn = bound(stateRand >> 8, 1e15, currentLiquidity / 40);
+
+            try forexSwap.quoteExactInput(amountIn, zeroForOne) returns (uint256 quoted) {
+                if (quoted == 0) {
+                    console2.log("step skipped: zero quote", i);
+                    continue;
+                }
+
+                ForexSwapHarness.SwapDebugTrace memory trace = forexSwap.debugExactInput(amountIn, zeroForOne);
+                _logRepeatedSwapTrace(i, stateRand, trace, invariantStart);
+
+                forexSwap.executeExactInput(amountIn, zeroForOne);
+
+                int256 actualInvariantAfter = forexSwap.currentInvariant();
+                uint256 stepDrift = _absDiffInt(trace.invariantBefore, actualInvariantAfter);
+                uint256 cumulativeDrift = _absDiffInt(invariantStart, actualInvariantAfter);
+
+                steps[i] = RegressionStep({
+                    step: i,
+                    zeroForOne: zeroForOne,
+                    amountIn: amountIn,
+                    amountOut: trace.amountOut,
+                    invariantBefore: trace.invariantBefore,
+                    invariantAfter: actualInvariantAfter,
+                    stepDrift: stepDrift,
+                    cumulativeDrift: cumulativeDrift
+                });
+
+                console2.log("executed step", i);
+                console2.log("actualAmountOut", trace.amountOut);
+                console2.logInt(actualInvariantAfter);
+                console2.log("stepDrift", stepDrift);
+                console2.log("cumulativeDrift", cumulativeDrift);
+            } catch (bytes memory reason) {
+                console2.log("step reverted", i);
+                console2.logBytes(reason);
+            }
+        }
+    }
+
+    function _runSingleStepTrace(
+        uint256 reserve0,
+        uint256 reserve1,
+        uint256 liquidityL,
+        uint256 amountIn,
+        bool zeroForOne,
+        string memory label
+    )
+        internal
+        returns (ForexSwapHarness.SwapDebugTrace memory trace)
+    {
+        forexSwap.seedState(reserve0, reserve1, liquidityL, 1e18, alice);
+        trace = forexSwap.debugExactInput(amountIn, zeroForOne);
+
+        console2.log("--- single step trace ---");
+        console2.log(label);
+        _logRepeatedSwapTrace(0, 0, trace, trace.invariantBefore);
+
+        forexSwap.executeExactInput(amountIn, zeroForOne);
+        int256 actualInvariantAfter = forexSwap.currentInvariant();
+
+        console2.log("actualInvariantAfter", uint256(_absInt(actualInvariantAfter)));
+        console2.log("previewExecuteGap", _absDiffInt(trace.invariantAfter, actualInvariantAfter));
+
+        assertEq(trace.invariantAfter, actualInvariantAfter);
+    }
+
+    function _logRootNeighborhood(
+        string memory label,
+        uint256 reserve0,
+        uint256 reserve1,
+        uint256 liquidityL,
+        bool varyReserve0
+    )
+        internal
+        view
+    {
+        console2.log("--- root neighborhood ---");
+        console2.log(label);
+
+        if (varyReserve0) {
+            if (reserve0 > 1) {
+                console2.logInt(forexSwap.residualForState(reserve0 - 1, reserve1, liquidityL));
+            }
+            console2.logInt(forexSwap.residualForState(reserve0, reserve1, liquidityL));
+            console2.logInt(forexSwap.residualForState(reserve0 + 1, reserve1, liquidityL));
+        } else {
+            if (reserve1 > 1) {
+                console2.logInt(forexSwap.residualForState(reserve0, reserve1 - 1, liquidityL));
+            }
+            console2.logInt(forexSwap.residualForState(reserve0, reserve1, liquidityL));
+            console2.logInt(forexSwap.residualForState(reserve0, reserve1 + 1, liquidityL));
+        }
+    }
+
+    function _logResidualNeighborhood(
+        string memory label,
+        uint256 reserve0,
+        uint256 reserve1,
+        uint256 liquidityL,
+        bool varyReserve0
+    )
+        internal
+        view
+    {
+        console2.log("--- residual neighborhood ---");
+        console2.log(label);
+
+        if (varyReserve0) {
+            if (reserve0 > 1) _logResidualPoint("minus1", forexSwap.debugResidual(reserve0 - 1, reserve1, liquidityL));
+            _logResidualPoint("exact", forexSwap.debugResidual(reserve0, reserve1, liquidityL));
+            _logResidualPoint("plus1", forexSwap.debugResidual(reserve0 + 1, reserve1, liquidityL));
+        } else {
+            if (reserve1 > 1) _logResidualPoint("minus1", forexSwap.debugResidual(reserve0, reserve1 - 1, liquidityL));
+            _logResidualPoint("exact", forexSwap.debugResidual(reserve0, reserve1, liquidityL));
+            _logResidualPoint("plus1", forexSwap.debugResidual(reserve0, reserve1 + 1, liquidityL));
+        }
+    }
+
+    function _logResidualPoint(string memory label, ForexSwapHarness.ResidualDebugTrace memory trace) internal pure {
+        console2.log(label);
+        console2.log("reserve0", trace.reserve0);
+        console2.log("reserve1", trace.reserve1);
+        console2.log("liquidity", trace.liquidity);
+        console2.log("maxReserve1", trace.maxReserve1);
+        console2.log("xNumerator", trace.xNumerator);
+        console2.log("xDenominator", trace.xDenominator);
+        console2.log("xOverL", trace.xOverL);
+        console2.logInt(trace.invPhiX);
+        console2.log("yNumerator", trace.yNumerator);
+        console2.log("yDenominator", trace.yDenominator);
+        console2.log("yOverMuL", trace.yOverMuL);
+        console2.logInt(trace.invPhiY);
+        console2.log("effectiveWidth", trace.effectiveWidth);
+        console2.logInt(trace.residual);
+    }
+
+    function _logInvPhiNeighborhood(string memory label, uint256 u) internal view {
+        console2.log("--- invPhi neighborhood ---");
+        console2.log(label);
+        if (u > 1) console2.logInt(forexSwap.debugInvPhi(u - 1));
+        console2.logInt(forexSwap.debugInvPhi(u));
+        console2.logInt(forexSwap.debugInvPhi(u + 1));
+    }
+
+    function _logLiquidityNeighborhood(
+        string memory label,
+        uint256 reserve0,
+        uint256 reserve1,
+        uint256 liquidityL,
+        bool originalOrientation
+    )
+        internal
+        view
+    {
+        console2.log("--- liquidity neighborhood ---");
+        console2.log(label);
+        if (liquidityL > 1) {
+            console2.logInt(forexSwap.residualForState(reserve0, reserve1, liquidityL - 1));
+        }
+        console2.logInt(forexSwap.residualForState(reserve0, reserve1, liquidityL));
+        console2.logInt(forexSwap.residualForState(reserve0, reserve1, liquidityL + 1));
+
+        if (originalOrientation) {
+            console2.log("solvedReserve1AtLminus1", forexSwap.solveReserve1(reserve0, liquidityL - 1));
+            console2.log("solvedReserve1AtL", forexSwap.solveReserve1(reserve0, liquidityL));
+            console2.log("solvedReserve1AtLplus1", forexSwap.solveReserve1(reserve0, liquidityL + 1));
+        } else {
+            console2.log("solvedReserve0AtLminus1", forexSwap.solveReserve0(reserve1, liquidityL - 1));
+            console2.log("solvedReserve0AtL", forexSwap.solveReserve0(reserve1, liquidityL));
+            console2.log("solvedReserve0AtLplus1", forexSwap.solveReserve0(reserve1, liquidityL + 1));
+        }
+    }
+
+    function _logRepeatedSwapTrace(
+        uint256 step,
+        uint256 stateRand,
+        ForexSwapHarness.SwapDebugTrace memory trace,
+        int256 invariantStart
+    )
+        internal
+        pure
+    {
+        console2.log("step", step);
+        console2.log("stateRand", stateRand);
+        console2.log("branch zeroForOne", trace.zeroForOne ? 1 : 0);
+        console2.log("amountIn", trace.amountIn);
+        console2.log("quotedAmountOut", trace.quoteAmountOut);
+        console2.log("reserve0Before", trace.reserve0Before);
+        console2.log("reserve1Before", trace.reserve1Before);
+        console2.log("liquidityBefore", trace.liquidityBefore);
+        console2.logInt(trace.invariantBefore);
+        console2.log("xOverLBefore", trace.xOverLBefore);
+        console2.log("yOverMuLBefore", trace.yOverMuLBefore);
+        console2.log("hookFeeWad", trace.hookFeeWad);
+        console2.log("feeAmount", trace.feeAmount);
+        console2.log("effectiveIn", trace.effectiveIn);
+        console2.log("postFeeSpecifiedReserve", trace.postFeeSpecifiedReserve);
+        console2.log("solvedLiquidity", trace.solvedLiquidity);
+        console2.log("reserve0AfterPreview", trace.reserve0After);
+        console2.log("reserve1AfterPreview", trace.reserve1After);
+        console2.log("previewAmountOut", trace.amountOut);
+        console2.logInt(trace.invariantAfter);
+        console2.log("previewStepDrift", _absDiffInt(trace.invariantBefore, trace.invariantAfter));
+        console2.log("previewCumulativeDrift", _absDiffInt(invariantStart, trace.invariantAfter));
+        console2.log("xOverLAfter", trace.xOverLAfter);
+        console2.log("yOverMuLAfter", trace.yOverMuLAfter);
     }
 
     function _safeQuoteExactInput(uint256 amountIn, bool zeroForOne)

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.26;
 
 import { SignedWadMath } from "./SignedWadMath.sol";
-import { diviWad, muliWad } from "./Units.sol";
+import { FullMath } from "@uniswap/v4-core/src/libraries/FullMath.sol";
 
 /**
  * @notice Canonical normal CDF/PPF helpers backed by a single inverse-normal approximation family.
@@ -71,50 +71,81 @@ library Gaussian {
     }
 
     function ppf(int256 x) internal pure returns (int256 z) {
+        z = _ppfRaw(x);
+
+        if (x > 1 && x < ONE - 1) {
+            int256 prev = _ppfRaw(x - 1);
+            int256 next = _ppfRaw(x + 1);
+            if (z < prev) z = prev;
+            if (z > next) z = next;
+        }
+    }
+
+    function _ppfRaw(int256 x) private pure returns (int256 z) {
         if (x <= 0) revert NegativeInfinity();
         if (x >= ONE) revert Infinity();
         if (x == HALF_WAD) return 0;
 
         if (x < P_LOW) {
-            int256 tailQ = _sqrtWad(-muliWad(TWO, SignedWadMath.lnWad(x)));
+            int256 tailQ = _sqrtWad(-_mulWadNearest(TWO, SignedWadMath.lnWad(x)));
             return _tailApprox(tailQ);
         }
 
         if (x > P_HIGH) {
-            int256 tailQ = _sqrtWad(-muliWad(TWO, SignedWadMath.lnWad(ONE - x)));
+            int256 tailQ = _sqrtWad(-_mulWadNearest(TWO, SignedWadMath.lnWad(ONE - x)));
             return -_tailApprox(tailQ);
         }
 
         int256 q = x - HALF_WAD;
-        int256 r = muliWad(q, q);
+        int256 r = _mulWadNearest(q, q);
 
-        int256 num = muliWad(A1, r) + A2;
-        num = muliWad(num, r) + A3;
-        num = muliWad(num, r) + A4;
-        num = muliWad(num, r) + A5;
-        num = muliWad(num, r) + A6;
+        int256 num = _mulWadNearest(A1, r) + A2;
+        num = _mulWadNearest(num, r) + A3;
+        num = _mulWadNearest(num, r) + A4;
+        num = _mulWadNearest(num, r) + A5;
+        num = _mulWadNearest(num, r) + A6;
 
-        int256 den = muliWad(B1, r) + B2;
-        den = muliWad(den, r) + B3;
-        den = muliWad(den, r) + B4;
-        den = muliWad(den, r) + B5;
-        den = muliWad(den, r) + ONE;
+        int256 den = _mulWadNearest(B1, r) + B2;
+        den = _mulWadNearest(den, r) + B3;
+        den = _mulWadNearest(den, r) + B4;
+        den = _mulWadNearest(den, r) + B5;
+        den = _mulWadNearest(den, r) + ONE;
 
-        z = muliWad(diviWad(num, den), q);
+        z = _mulWadNearest(_divWadNearest(num, den), q);
     }
 
     function _tailApprox(int256 q) private pure returns (int256 z) {
-        int256 num = muliWad(C1, q) + C2;
-        num = muliWad(num, q) + C3;
-        num = muliWad(num, q) + C4;
-        num = muliWad(num, q) + C5;
-        num = muliWad(num, q) + C6;
+        int256 num = _mulWadNearest(C1, q) + C2;
+        num = _mulWadNearest(num, q) + C3;
+        num = _mulWadNearest(num, q) + C4;
+        num = _mulWadNearest(num, q) + C5;
+        num = _mulWadNearest(num, q) + C6;
 
-        int256 den = muliWad(D1, q) + D2;
-        den = muliWad(den, q) + D3;
-        den = muliWad(den, q) + D4;
-        den = muliWad(den, q) + ONE;
-        z = diviWad(num, den);
+        int256 den = _mulWadNearest(D1, q) + D2;
+        den = _mulWadNearest(den, q) + D3;
+        den = _mulWadNearest(den, q) + D4;
+        den = _mulWadNearest(den, q) + ONE;
+        z = _divWadNearest(num, den);
+    }
+
+    function _mulWadNearest(int256 x, int256 y) private pure returns (int256 z) {
+        bool negative = (x < 0) != (y < 0);
+        uint256 ax = uint256(x < 0 ? -x : x);
+        uint256 ay = uint256(y < 0 ? -y : y);
+        uint256 q = FullMath.mulDiv(ax, ay, uint256(WAD));
+        uint256 r = mulmod(ax, ay, uint256(WAD));
+        if (r >= uint256(WAD) - r) ++q;
+        z = negative ? -int256(q) : int256(q);
+    }
+
+    function _divWadNearest(int256 x, int256 y) private pure returns (int256 z) {
+        bool negative = (x < 0) != (y < 0);
+        uint256 ax = uint256(x < 0 ? -x : x);
+        uint256 ay = uint256(y < 0 ? -y : y);
+        uint256 q = FullMath.mulDiv(ax, uint256(WAD), ay);
+        uint256 r = mulmod(ax, uint256(WAD), ay);
+        if (r >= ay - r) ++q;
+        z = negative ? -int256(q) : int256(q);
     }
 
     function _sqrtWad(int256 x) private pure returns (int256 z) {
