@@ -528,8 +528,10 @@ contract ForexSwapCorrectTest is Test {
         uint256 oneForZeroInNormalized = 2e17;
         uint256 zeroForOneOutNormalized = forexSwap.calculateAmountOut(zeroForOneInNormalized, true);
         uint256 oneForZeroOutNormalized = forexSwap.calculateAmountOut(oneForZeroInNormalized, false);
+        vm.pauseGasMetering();
         uint256 zeroForOnePreviewNormalized = forexSwap.previewExactOutput(1e17, true);
         uint256 oneForZeroPreviewNormalized = forexSwap.previewExactOutput(5e16, false);
+        vm.resumeGasMetering();
 
         forexSwap.configureTokenDecimalsForTest(6, 18);
 
@@ -545,8 +547,10 @@ contract ForexSwapCorrectTest is Test {
         assertEq(zeroForOneOutRaw, zeroForOneOutNormalized);
         assertEq(oneForZeroOutRaw, oneForZeroOutNormalized / 1e12);
 
+        vm.pauseGasMetering();
         uint256 zeroForOnePreviewRaw = forexSwap.previewExactOutput(1e17, true);
         uint256 oneForZeroPreviewRaw = forexSwap.previewExactOutput(5e16 / 1e12, false);
+        vm.resumeGasMetering();
         assertEq(zeroForOnePreviewRaw, ((zeroForOnePreviewNormalized - 1) / 1e12) + 1);
         assertEq(oneForZeroPreviewRaw, oneForZeroPreviewNormalized);
     }
@@ -1230,6 +1234,7 @@ contract ForexSwapCorrectTest is Test {
     }
 
     function test_invariantTelemetryLogsWorstObservedDrift() external {
+        vm.pauseGasMetering();
         uint256[4] memory reserve0Seeds = [uint256(2e17), 35e16, 5e17, 65e16];
         uint256[4] memory liquiditySeeds = [uint256(1e18), 2e18, 4e18, 8e18];
 
@@ -1268,6 +1273,7 @@ contract ForexSwapCorrectTest is Test {
         console2.log("maxStepDrift", maxStepDrift);
         console2.log("maxCumulativeDrift", maxCumulativeDrift);
         console2.log("maxPreviewExecuteGap", maxPreviewGap);
+        vm.resumeGasMetering();
     }
 
     function test_previewExactOutputBoundaryHarness_zeroForOne_logsFrontierAndMonotonicity() external {
@@ -1279,6 +1285,7 @@ contract ForexSwapCorrectTest is Test {
     }
 
     function _runPreviewBoundaryHarness(bool zeroForOne) internal {
+        vm.pauseGasMetering();
         uint256 liquidityL = 1e18;
         uint256[4] memory xRatios = [uint256(5.1e16), 6e16, 94e16, 94.9e16];
         console2.log("--- preview frontier dir ---", zeroForOne ? 0 : 1);
@@ -1291,6 +1298,7 @@ contract ForexSwapCorrectTest is Test {
                 console2.log("stateProbeReverted");
             }
         }
+        vm.resumeGasMetering();
     }
 
     function logPreviewBoundaryCaseExternal(
